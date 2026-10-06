@@ -12,6 +12,10 @@ CREATE TABLE IF NOT EXISTS entries (
     status TEXT,
     ip TEXT,
     likes INTEGER,
+    -- 'stampante' (pensieri dal totem), 'tesi'/'interviste' (caricate a mano
+    -- o lette da un testo con quel kind), 'libro' (testi letti senza kind
+    -- tesi/intervista): usata per filtrare la nebulosa per categoria.
+    category TEXT NOT NULL DEFAULT 'stampante',
     synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
     tagged_at TEXT                   -- NULL finche' Ollama non l'ha ancora processata
 );
@@ -86,6 +90,10 @@ def init_db() -> None:
                 "ALTER TABLE entries ADD COLUMN source_id INTEGER "
                 "REFERENCES sources(id) ON DELETE CASCADE"
             )
+        if "category" not in columns:
+            conn.execute(
+                "ALTER TABLE entries ADD COLUMN category TEXT NOT NULL DEFAULT 'stampante'"
+            )
 
 
 def upsert_entries(rows: list[dict]) -> int:
@@ -123,6 +131,32 @@ def upsert_entries(rows: list[dict]) -> int:
     return len(rows)
 
 
+def insert_local_entries(category: str, texts: list[str]) -> list[int]:
+    """Inserisce entry caricate a mano dal pannello /inserisci.html (tesi o
+    interviste), con id negativi cosi' non collidono mai con quelli delle
+    righe MySQL (positivi) o delle citazioni dai testi (>= FRAGMENT_ID_BASE)."""
+    if category not in ("tesi", "interviste"):
+        raise ValueError(f"categoria non valida per inserimento locale: {category!r}")
+    if not texts:
+        return []
+    with get_connection() as conn:
+        next_id = (conn.execute("SELECT MIN(id) AS m FROM entries").fetchone()["m"] or 0) - 1
+        if next_id >= 0:
+            next_id = -1
+        ids = []
+        for text in texts:
+            conn.execute(
+                """
+                INSERT INTO entries (id, text, created_at, status, ip, likes, category)
+                VALUES (?, ?, NULL, 'uploaded', NULL, 0, ?)
+                """,
+                (next_id, text, category),
+            )
+            ids.append(next_id)
+            next_id -= 1
+    return ids
+
+
 def count_entries() -> int:
     with get_connection() as conn:
         return conn.execute("SELECT COUNT(*) AS n FROM entries").fetchone()["n"]
@@ -158,17 +192,20 @@ def set_entry_tags(entry_id: int, tag_names: list[str]) -> None:
         )
 
 
-def get_entries_with_tags() -> list[dict]:
+def get_entries_with_tags(category: str | None = None) -> list[dict]:
     """Tutte le entry con i loro tag. Per le citazioni tratte da un testo,
-    `source` ne riporta titolo e autore; per i pensieri delle persone e' None."""
+    `source` ne riporta titolo e autore; per i pensieri delle persone e' None.
+    Con `category` filtra per 'stampante' | 'tesi' | 'interviste' | 'libro'."""
     init_db()
     with get_connection() as conn:
-        entries = conn.execute(
-            """
-            SELECT e.id, e.text, e.likes, s.title AS source_title, s.author AS source_author
-            FROM entries e LEFT JOIN sources s ON s.id = e.source_id
-            """
-        ).fetchall()
+        query = (
+            "SELECT e.id, e.text, e.likes, s.title AS source_title, s.author AS source_author "
+            "FROM entries e LEFT JOIN sources s ON s.id = e.source_id"
+        )
+        if category is None:
+            entries = conn.execute(query).fetchall()
+        else:
+            entries = conn.execute(query + " WHERE e.category = ?", (category,)).fetchall()
         result = []
         for entry in entries:
             tag_rows = conn.execute(
@@ -301,15 +338,26 @@ def get_passages() -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def insert_fragments(source_id: int, rows: list[dict]) -> None:
+_CATEGORY_BY_KIND = {"tesi": "tesi", "intervista": "interviste"}
+
+
+def insert_fragments(source_id: int, rows: list[dict], kind: str | None = None) -> None:
     """Salva le citazioni di un testo come entry della nebulosa (ancora da
-    taggare). Ogni riga: {"passage_id", "text"}."""
+    taggare). Ogni riga: {"passage_id", "text"}. La categoria (per i 4
+    pulsanti TUTTI/TESI/INTERVISTE/STAMPANTE del frontend) segue il `kind`
+    del testo di provenienza; 'libro' per i testi senza kind tesi/intervista."""
+    category = _CATEGORY_BY_KIND.get(kind, "libro")
     with get_connection() as conn:
         conn.executemany(
-            "INSERT OR REPLACE INTO entries (id, text, status, likes, source_id) "
-            "VALUES (:id, :text, 'testo', 0, :source_id)",
+            "INSERT OR REPLACE INTO entries (id, text, status, likes, source_id, category) "
+            "VALUES (:id, :text, 'testo', 0, :source_id, :category)",
             [
-                {"id": FRAGMENT_ID_BASE + row["passage_id"], "text": row["text"], "source_id": source_id}
+                {
+                    "id": FRAGMENT_ID_BASE + row["passage_id"],
+                    "text": row["text"],
+                    "source_id": source_id,
+                    "category": category,
+                }
                 for row in rows
             ],
         )

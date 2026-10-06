@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inserisci — Oracolo</title>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #14090f;
+      font-family: Georgia, "Times New Roman", serif;
+      color: #ffffff;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      box-sizing: border-box;
+      background:
+        radial-gradient(circle at 30% 20%, rgba(233, 30, 233, 0.12), transparent 55%),
+        radial-gradient(circle at 75% 75%, rgba(217, 174, 125, 0.08), transparent 50%),
+        #14090f;
+    }
+    .wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      max-width: 36rem;
+      width: 100%;
+      text-align: center;
+    }
+    .eyebrow {
+      font-family: 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: .2em;
+      font-size: 11px;
+      color: #a8899e;
+      margin: 0 0 1.5rem;
+    }
+    h1 {
+      font-size: 1.8rem;
+      color: #e91ee9;
+      margin: 0 0 2rem;
+    }
+    .categories {
+      display: flex;
+      gap: .75rem;
+      margin-bottom: 1.5rem;
+    }
+    .category-btn {
+      flex: 1;
+      background: transparent;
+      color: #cfcfcf;
+      border: 1px solid rgba(236,226,211,.25);
+      border-radius: 999px;
+      padding: .6rem 1rem;
+      font-family: 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-size: .75rem;
+      cursor: pointer;
+      transition: background .2s, color .2s, border-color .2s;
+    }
+    .category-btn:hover {
+      border-color: #d7a66e;
+    }
+    .category-btn.active {
+      background: #e91ee9;
+      border-color: #e91ee9;
+      color: #14090f;
+    }
+    .dropzone {
+      width: 100%;
+      border: 1px dashed rgba(236,226,211,.3);
+      border-radius: 12px;
+      padding: 2rem 1rem;
+      box-sizing: border-box;
+      cursor: pointer;
+      color: #a8899e;
+      font-size: .95rem;
+      transition: border-color .2s, color .2s;
+    }
+    .dropzone:hover, .dropzone.drag {
+      border-color: #e91ee9;
+      color: #e91ee9;
+    }
+    .file-list {
+      list-style: none;
+      padding: 0;
+      margin: 1.5rem 0 0;
+      width: 100%;
+      text-align: left;
+      font-size: .85rem;
+      color: #cfcfcf;
+    }
+    .file-list li {
+      padding: .4rem 0;
+      border-bottom: 1px solid rgba(236,226,211,.1);
+      display: flex;
+      justify-content: space-between;
+      gap: .5rem;
+    }
+    .file-list li span:last-child {
+      color: #a8899e;
+      font-family: 'DM Mono', monospace;
+      font-size: .7rem;
+    }
+    .submit-btn {
+      margin-top: 1.5rem;
+      background: transparent;
+      color: #e91ee9;
+      border: 1px solid #e91ee9;
+      border-radius: 999px;
+      padding: .7rem 2rem;
+      font-family: inherit;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: background .2s, color .2s;
+    }
+    .submit-btn:hover:not(:disabled) {
+      background: #e91ee9;
+      color: #14090f;
+    }
+    .submit-btn:disabled {
+      opacity: .5;
+      cursor: default;
+    }
+    .status {
+      margin-top: 1.25rem;
+      font-size: .9rem;
+      color: #cfcfcf;
+      min-height: 1.3rem;
+    }
+    .back {
+      position: fixed;
+      top: 24px;
+      left: 24px;
+      font-family: 'DM Mono', monospace;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      font-size: 10px;
+      color: #a8899e;
+      text-decoration: none;
+    }
+    .back:hover {
+      color: #e91ee9;
+    }
+  </style>
+</head>
+<body>
+  <a class="back" href="./">&larr; la nebulosa</a>
+  <div class="wrap">
+    <p class="eyebrow">Oracolo</p>
+    <h1>Inserisci nella Nebulosa</h1>
+
+    <div class="categories" id="categories">
+      <button class="category-btn active" type="button" data-category="tesi">Tesi</button>
+      <button class="category-btn" type="button" data-category="interviste">Interviste</button>
+    </div>
+
+    <label class="dropzone" id="dropzone">
+      <input type="file" id="file-input" accept=".md" multiple hidden />
+      Seleziona o trascina uno o piu' file <strong>.md</strong>
+    </label>
+
+    <ul class="file-list" id="file-list"></ul>
+
+    <button class="submit-btn" id="submit-btn" type="button" disabled>Carica e tagga</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    const categoriesEl = document.getElementById("categories");
+    const dropzone = document.getElementById("dropzone");
+    const fileInput = document.getElementById("file-input");
+    const fileListEl = document.getElementById("file-list");
+    const submitBtn = document.getElementById("submit-btn");
+    const statusEl = document.getElementById("status");
+
+    let category = "tesi";
+    let selectedFiles = [];
+
+    categoriesEl.addEventListener("click", (event) => {
+      const btn = event.target.closest(".category-btn");
+      if (!btn) return;
+      category = btn.dataset.category;
+      for (const b of categoriesEl.querySelectorAll(".category-btn")) {
+        b.classList.toggle("active", b === btn);
+      }
+    });
+
+    function renderFileList() {
+      fileListEl.innerHTML = "";
+      for (const file of selectedFiles) {
+        const li = document.createElement("li");
+        const name = document.createElement("span");
+        name.textContent = file.name;
+        const size = document.createElement("span");
+        size.textContent = `${(file.size / 1024).toFixed(1)} KB`;
+        li.append(name, size);
+        fileListEl.appendChild(li);
+      }
+      submitBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function addFiles(fileArray) {
+      const mdFiles = fileArray.filter((f) => f.name.toLowerCase().endsWith(".md"));
+      selectedFiles = [...selectedFiles, ...mdFiles];
+      renderFileList();
+    }
+
+    dropzone.addEventListener("click", () => fileInput.click());
+    fileInput.addEventListener("change", () => {
+      addFiles(Array.from(fileInput.files || []));
+      fileInput.value = "";
+    });
+
+    dropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      dropzone.classList.add("drag");
+    });
+    dropzone.addEventListener("dragleave", () => dropzone.classList.remove("drag"));
+    dropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      dropzone.classList.remove("drag");
+      addFiles(Array.from(event.dataTransfer?.files || []));
+    });
+
+    function readFileAsText(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error);
+        reader.readAsText(file);
+      });
+    }
+
+    submitBtn.addEventListener("click", async () => {
+      if (selectedFiles.length === 0) return;
+      submitBtn.disabled = true;
+      statusEl.textContent = `Leggo ${selectedFiles.length} file...`;
+
+      try {
+        const files = await Promise.all(
+          selectedFiles.map(async (file) => ({
+            filename: file.name,
+            text: await readFileAsText(file),
+          }))
+        );
+
+        statusEl.textContent = "Carico e tagga con Ollama (puo' richiedere qualche istante)...";
+        const res = await fetch("api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category, files }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "caricamento fallito");
+
+        statusEl.textContent =
+          `Caricate ${data.inserted} entry, taggate ${data.tagged}` +
+          (data.warning ? ` (${data.warning})` : "") + ".";
+        selectedFiles = [];
+        renderFileList();
+      } catch (err) {
+        statusEl.textContent = `Errore: ${err.message || err}`;
+      } finally {
+        submitBtn.disabled = selectedFiles.length === 0;
+      }
+    });
+  </script>
+</body>
+</html>

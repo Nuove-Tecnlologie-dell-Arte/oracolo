@@ -9,6 +9,7 @@ import {
   fetchStarQuestion,
   fetchSuggestions,
   fetchTagDetail,
+  type Category,
   type TagDetail,
   type TagGraph,
 } from '@/lib/api';
@@ -322,7 +323,23 @@ const endpoints = (link: GraphLink): [string, string] => [
 // Chiave di un collegamento, uguale nei due versi.
 const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
+// Lente da cui guardare la nebulosa, scelta nell'header: cambiarla ricarica
+// la pagina (il viaggio/figure in corso ripartono da capo con il nuovo
+// insieme di stelle), persistita in ?category= cosi' il link resta condiviso.
+const CATEGORY_OPTIONS: { value: Category; label: string }[] = [
+  { value: 'tutti', label: 'Tutti' },
+  { value: 'tesi', label: 'Tesi' },
+  { value: 'interviste', label: 'Interviste' },
+  { value: 'stampante', label: 'Stampante' },
+];
+
+function categoryFromUrl(): Category {
+  const value = new URLSearchParams(window.location.search).get('category');
+  return CATEGORY_OPTIONS.some((opt) => opt.value === value) ? (value as Category) : 'tutti';
+}
+
 export default function App() {
+  const [category] = useState<Category>(categoryFromUrl);
   const [graphData, setGraphData] = useState<TagGraph>(emptyGraph);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -407,14 +424,14 @@ export default function App() {
   // ── Load the tag graph from Oracolo ──
   const loadGraph = useCallback(async () => {
     try {
-      const data = await fetchGraph();
+      const data = await fetchGraph(category);
       setGraphData(data);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Impossibile caricare la nebulosa');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [category]);
 
   useEffect(() => {
     loadGraph();
@@ -781,12 +798,12 @@ export default function App() {
     const node = graph.nodes.find((n) => n.id === id);
     if (node && fly) flyToNode(node);
     try {
-      const detail = await fetchTagDetail(id);
+      const detail = await fetchTagDetail(id, category);
       if (selectionRef.current === id) setDetailTag(detail);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Impossibile caricare il tag');
     }
-  }, [graph.nodes, flyToNode]);
+  }, [graph.nodes, flyToNode, category]);
 
   // Seleziona un tag: lo apre e lo aggiunge al viaggio (che riparte da capo
   // se non e' collegato all'ultima tappa).
@@ -1706,6 +1723,24 @@ export default function App() {
         </div>
         <div className="header-center"><span className="status-dot" />Frammento <span className="header-divider" /> {graphData.nodes.length} tag condivisi</div>
         <div className="header-actions">
+          <div className="category-switch" role="group" aria-label="Filtra la nebulosa per categoria">
+            {CATEGORY_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={`category-switch-btn${category === opt.value ? ' active' : ''}`}
+                onClick={() => {
+                  if (opt.value === category) return;
+                  const url = new URL(window.location.href);
+                  if (opt.value === 'tutti') url.searchParams.delete('category');
+                  else url.searchParams.set('category', opt.value);
+                  window.location.href = url.toString();
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <a className="help-button" href={`${import.meta.env.BASE_URL}question.html`} aria-label="L'oracolo"><Sparkles size={16} strokeWidth={1.5} /></a>
           <button className="help-button" type="button" aria-label="Cos'è l'Oracolo" onClick={() => setShowAbout(true)}><CircleHelp size={17} strokeWidth={1.5} /></button>
         </div>

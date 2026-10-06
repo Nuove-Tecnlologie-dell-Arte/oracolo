@@ -50,14 +50,17 @@ export type TagDetail = {
 // cosi' funzionano sia con il server Python locale sia con l'export statico.
 const API_BASE = import.meta.env.BASE_URL;
 
-export async function fetchGraph(): Promise<TagGraph> {
-  const res = await fetch(`${API_BASE}api/graph`);
+// Lente con cui guardare la nebulosa: 'tutti' oppure una provenienza sola.
+export type Category = 'tutti' | 'tesi' | 'interviste' | 'stampante';
+
+export async function fetchGraph(category: Category = 'tutti'): Promise<TagGraph> {
+  const res = await fetch(`${API_BASE}api/graph?category=${category}`);
   if (!res.ok) throw new Error('Impossibile caricare la nebulosa dei tag');
   return res.json();
 }
 
-export async function fetchTagDetail(name: string): Promise<TagDetail> {
-  const res = await fetch(`${API_BASE}api/tag/${encodeURIComponent(name)}`);
+export async function fetchTagDetail(name: string, category: Category = 'tutti'): Promise<TagDetail> {
+  const res = await fetch(`${API_BASE}api/tag/${encodeURIComponent(name)}?category=${category}`);
   if (!res.ok) throw new Error(`Tag "${name}" non trovato`);
   return res.json();
 }

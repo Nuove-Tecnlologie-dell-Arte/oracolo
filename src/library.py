@@ -454,6 +454,7 @@ def _ingest(job: dict, index: themes.ThemeIndex) -> dict:
     db_local.insert_fragments(
         source_id,
         [{"passage_id": passage_ids[f["index"]], "text": f["text"]} for f in fragments],
+        kind,
     )
     quote_vectors = embeddings.embed_texts([f["text"] for f in fragments])
     db_local.upsert_entry_embeddings(

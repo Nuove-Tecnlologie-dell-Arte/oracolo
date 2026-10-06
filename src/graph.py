@@ -9,9 +9,9 @@ from src.logging_utils import get_logger
 log = get_logger(__name__)
 
 
-def build_graph() -> nx.Graph:
-    entries = db_local.get_entries_with_tags()
-    log.info("Costruisco il grafo da %d entry", len(entries))
+def build_graph(category: str | None = None) -> nx.Graph:
+    entries = db_local.get_entries_with_tags(category)
+    log.info("Costruisco il grafo da %d entry (categoria: %s)", len(entries), category or "tutti")
 
     tag_counts: Counter = Counter()
     edge_weights: Counter = Counter()
@@ -32,13 +32,13 @@ def build_graph() -> nx.Graph:
     return g
 
 
-def build_graph_json() -> dict:
+def build_graph_json(category: str | None = None) -> dict:
     """Rappresentazione JSON del grafo dei tag, per il frontend (nodi + archi).
 
     Il cluster di ogni nodo e' l'indice della sua componente connessa, usato
     dal frontend solo per colorare gruppi di tag imparentati tra loro.
     """
-    g = build_graph()
+    g = build_graph(category)
     cluster_of: dict[str, int] = {}
     for i, component in enumerate(nx.connected_components(g)):
         for node in component:

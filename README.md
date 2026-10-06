@@ -52,9 +52,20 @@ un'altra domanda oppure viaggiare nella nebulosa: ogni altra stella che apri
 risponde alla tua domanda a modo suo. La stessa barra cerca anche i tag per
 nome; nella scheda si vedono i frammenti della stella e i tag collegati.
 
+Nell'header, 4 pulsanti (TUTTI/TESI/INTERVISTE/STAMPANTE) filtrano la
+nebulosa per categoria: STAMPANTE sono i pensieri sincronizzati da MySQL;
+TESI/INTERVISTE sono le citazioni lette dall'Oracolo con quel `kind` (vedi
+sotto) piu' quelle caricate a mano da `inserisci.html`. Cambiare categoria
+ricarica la pagina (il link resta condiviso, es. `?category=tesi`).
+
 Il server espone anche endpoint JSON usati dal frontend:
-- `GET /api/graph` — nodi (tag) e archi (co-occorrenze) dell'intero grafo
-- `GET /api/tag/<nome>` — frammenti e tag collegati per un singolo tag
+- `GET /api/graph?category=<tutti|tesi|interviste|stampante>` — nodi (tag) e
+  archi (co-occorrenze) del grafo, filtrato per categoria (default: tutti)
+- `GET /api/tag/<nome>?category=<...>` — frammenti e tag collegati per un
+  singolo tag, nella stessa categoria attiva nel frontend
+- `POST /api/upload` — carica una o piu' entry testuali in categoria tesi o
+  interviste (`{"category": "tesi"|"interviste", "files": [{"filename", "text"}, ...]}`),
+  le tagga subito via Ollama e ritorna `{"inserted", "tagged"}`
 - `GET /api/questions` — domande evocative generate al volo da Ollama, usate da `question.html`
 - `GET /api/suggestions` — alcune domande da proporre a chi entra
 - `POST /api/ask` — domanda del visitatore (`{"question": "..."}`): ritorna la stella a
@@ -69,6 +80,12 @@ Apri `http://localhost:8000/question.html` per "l'Oracolo": una domanda
 generata al volo (serve Ollama raggiungibile), con un pulsante per rerollare
 tra quelle gia' ricevute e uno per chiedere una risposta criptica. Raggiungibile
 anche dal pulsante a forma di stella nell'header della Nebulosa.
+
+Apri `http://localhost:8000/inserisci.html` per caricare rapidamente file
+`.md` in categoria tesi o interviste (senza passare per `testi/` + `ingest`,
+pensato per note brevi): scegli la categoria, seleziona/trascina i file,
+vengono inseriti nel DB locale e taggati via Ollama. Non richiede
+autenticazione: va bene in una rete di fiducia, non va esposto pubblicamente.
 
 ## Testi letti dall'Oracolo
 
@@ -104,6 +121,11 @@ I file dei testi non sono versionati (sono opere altrui): in git entra solo
 `fonti.json`. `ingest --list` elenca i testi letti, `ingest --forget <file>`
 ne toglie uno. I PDF fatti di sole immagini scansionate non contengono testo
 e vanno prima convertiti.
+
+Le citazioni con `"kind": "tesi"` o `"kind": "intervista"` finiscono nella
+nebulosa con quella categoria (compaiono quindi anche filtrando per
+TESI/INTERVISTE nell'header); i testi senza quel `kind` (es. `"libro"` o
+nessun `kind`) restano visibili solo in TUTTI.
 
 ## Note
 

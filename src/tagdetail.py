@@ -3,13 +3,13 @@ from collections import Counter
 from src import db_local
 
 
-def build_tag_detail(tag_name: str) -> dict | None:
+def build_tag_detail(tag_name: str, category: str | None = None) -> dict | None:
     """Dettaglio di un tag (entry correlate + tag imparentati), o None se non esiste.
 
     Condivisa tra il server locale (src/server.py) e l'export statico
     (src/export_static.py) cosi' producono esattamente la stessa risposta.
     """
-    entries = db_local.get_entries_with_tags()
+    entries = db_local.get_entries_with_tags(category)
     matching = [e for e in entries if tag_name in e["tags"]]
     if not matching:
         return None

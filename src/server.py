@@ -7,12 +7,22 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import requests
 
-from src import config, db_local, graph, oracle
+from src import config, db_local, graph, oracle, tagging
 from src.logging_utils import get_logger
 from src.question import generate_questions
 from src.tagdetail import build_tag_detail
 
 log = get_logger(__name__)
+
+UPLOAD_CATEGORIES = ("tesi", "interviste")
+
+
+def _category_filter(query: dict) -> str | None:
+    """Legge ?category=... dalla query string; 'tutti' o assente = nessun filtro."""
+    value = (query.get("category") or [""])[0].strip().lower()
+    if value in ("", "tutti"):
+        return None
+    return value
 
 # Momento in cui questo server e' partito: un server legge il codice solo
 # all'avvio, quindi dopo un aggiornamento va riavviato.
@@ -88,11 +98,13 @@ class Handler(SimpleHTTPRequestHandler):
 
     def _api_get(self, path: str) -> None:
         if path == "/api/graph":
-            self._send_json(200, graph.build_graph_json())
+            query = parse_qs(urlsplit(self.path).query)
+            self._send_json(200, graph.build_graph_json(_category_filter(query)))
             return
         if path.startswith("/api/tag/"):
             tag_name = unquote(path[len("/api/tag/"):])
-            self._handle_tag_detail(tag_name)
+            query = parse_qs(urlsplit(self.path).query)
+            self._handle_tag_detail(tag_name, _category_filter(query))
             return
         if path == "/api/questions":
             self._handle_questions()
@@ -121,10 +133,13 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/oracle/figure":
             self._handle_figure()
             return
+        if path == "/api/upload":
+            self._handle_upload()
+            return
         self._send_json(404, {"error": "indirizzo sconosciuto"})
 
-    def _handle_tag_detail(self, tag_name: str) -> None:
-        detail = build_tag_detail(tag_name)
+    def _handle_tag_detail(self, tag_name: str, category: str | None) -> None:
+        detail = build_tag_detail(tag_name, category)
         if detail is None:
             self._send_json(404, {"error": "tag non trovato"})
             return
@@ -232,6 +247,38 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json(502, {"error": "la nebulosa e' ancora vuota"})
             return
         self._send_json(200, result)
+
+    def _handle_upload(self) -> None:
+        """Carica file .md dal pannello /inserisci.html: {"category": "tesi"|
+        "interviste", "files": [{"filename", "text"}, ...]}. Inserisce le
+        entry e le tagga subito via Ollama."""
+        body = self._read_json()
+        if body is None:
+            return
+
+        category = str(body.get("category", "")).strip().lower()
+        if category not in UPLOAD_CATEGORIES:
+            self._send_json(
+                400, {"error": f"categoria non valida, deve essere una tra {UPLOAD_CATEGORIES}"}
+            )
+            return
+
+        files = body.get("files")
+        if not isinstance(files, list) or not files:
+            self._send_json(400, {"error": "manca 'files' (lista di {filename, text})"})
+            return
+
+        texts = [str(f.get("text", "")).strip() for f in files if isinstance(f, dict)]
+        texts = [t for t in texts if t]
+        if not texts:
+            self._send_json(400, {"error": "nessun file con contenuto testuale valido"})
+            return
+
+        ids = db_local.insert_local_entries(category, texts)
+        log.info("Caricate %d entry in categoria '%s' (id %s)", len(ids), category, ids)
+
+        tagged = tagging.tag_pending_entries()
+        self._send_json(200, {"inserted": len(ids), "tagged": tagged})
 
     def _read_json(self) -> dict | None:
         """Corpo JSON della richiesta; se non e' valido risponde 400 e ritorna None."""

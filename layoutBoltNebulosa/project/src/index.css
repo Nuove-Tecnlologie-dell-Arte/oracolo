@@ -42,6 +42,11 @@ h1 span { color: #dbab72; margin: 0 3px; }
 .help-button { width: 34px; height: 34px; display: grid; place-items: center; border: 1px solid rgba(236,226,211,.2); border-radius: 50%; background: rgba(255,255,255,.03); cursor: pointer; color: #aaa19a; text-decoration: none; transition: border .2s, color .2s, transform .2s; }
 .help-button:hover { border-color: #d7a66e; color: #e1b47f; transform: rotate(12deg); }
 
+.category-switch { display: flex; align-items: center; gap: 4px; border: 1px solid rgba(236,226,211,.15); border-radius: 999px; padding: 3px; background: rgba(255,255,255,.02); }
+.category-switch-btn { font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .08em; font-size: 9px; color: #aaa19a; background: transparent; border: none; border-radius: 999px; padding: 6px 12px; cursor: pointer; transition: background .2s, color .2s; }
+.category-switch-btn:hover { color: #e1b47f; }
+.category-switch-btn.active { background: #d7a66e; color: #14090f; }
+
 .side-panel { top: 148px; left: 42px; width: 238px; color: #c8c1b8; }
 .left-panel { transition: opacity .8s ease; }
 .left-panel.is-receded { opacity: 0; pointer-events: none; }
