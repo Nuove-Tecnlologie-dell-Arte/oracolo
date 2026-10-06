@@ -1,7 +1,7 @@
 import logging
 import sys
 
-from src import config
+from backend import config
 
 _CONFIGURED = False
 

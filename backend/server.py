@@ -7,10 +7,10 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import requests
 
-from src import config, db_local, graph, oracle, tagging
-from src.logging_utils import get_logger
-from src.question import generate_questions
-from src.tagdetail import build_tag_detail
+from backend import config, db_local, graph, oracle, tagging
+from backend.logging_utils import get_logger
+from backend.question import generate_questions
+from backend.tagdetail import build_tag_detail
 
 log = get_logger(__name__)
 

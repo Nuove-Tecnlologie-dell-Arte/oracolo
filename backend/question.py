@@ -3,8 +3,8 @@ import random
 
 import requests
 
-from src import config, db_local
-from src.logging_utils import get_logger
+from backend import config, db_local
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

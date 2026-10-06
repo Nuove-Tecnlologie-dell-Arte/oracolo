@@ -1,7 +1,7 @@
 import requests
 
-from src import config
-from src.logging_utils import get_logger
+from backend import config
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

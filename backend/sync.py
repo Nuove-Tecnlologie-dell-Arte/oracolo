@@ -1,5 +1,5 @@
-from src import config, db_local, db_online
-from src.logging_utils import get_logger
+from backend import config, db_local, db_online
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

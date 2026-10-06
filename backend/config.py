@@ -55,7 +55,7 @@ LIBRARY_STARS_PER_SOURCE = _int("LIBRARY_STARS_PER_SOURCE", 40)
 QUESTIONS_COUNT = _int("QUESTIONS_COUNT", 6)
 
 # --- Webserver locale (serve il frontend "Nebulosa" + /api/graph, /api/tag/<nome>) ---
-FRONTEND_DIST_PATH = os.getenv("FRONTEND_DIST_PATH", "layoutBoltNebulosa/project/dist")
+FRONTEND_DIST_PATH = os.getenv("FRONTEND_DIST_PATH", "frontend/dist")
 SERVE_HOST = os.getenv("SERVE_HOST", "0.0.0.0")
 SERVE_PORT = _int("SERVE_PORT", 8000)
 

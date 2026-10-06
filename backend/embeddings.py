@@ -10,8 +10,8 @@ import hashlib
 import math
 from array import array
 
-from src import config, db_local, ollama
-from src.logging_utils import get_logger
+from backend import config, db_local, ollama
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

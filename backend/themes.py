@@ -21,8 +21,8 @@ import unicodedata
 from array import array
 from difflib import get_close_matches
 
-from src import config, db_local, embeddings, ollama
-from src.logging_utils import get_logger
+from backend import config, db_local, embeddings, ollama
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

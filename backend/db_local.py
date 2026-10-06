@@ -2,7 +2,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-from src import config
+from backend import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS entries (

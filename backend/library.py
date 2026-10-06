@@ -24,8 +24,8 @@ from pathlib import Path
 
 from pypdf import PdfReader
 
-from src import config, db_local, embeddings, themes
-from src.logging_utils import get_logger
+from backend import config, db_local, embeddings, themes
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

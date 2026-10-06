@@ -4,13 +4,13 @@ import subprocess
 from pathlib import Path
 from urllib.parse import quote
 
-from src import db_local, graph
-from src.logging_utils import get_logger
-from src.tagdetail import build_tag_detail
+from backend import db_local, graph
+from backend.logging_utils import get_logger
+from backend.tagdetail import build_tag_detail
 
 log = get_logger(__name__)
 
-FRONTEND_PROJECT_DIR = Path("layoutBoltNebulosa/project")
+FRONTEND_PROJECT_DIR = Path("frontend")
 
 
 def _js_encode_uri_component(value: str) -> str:

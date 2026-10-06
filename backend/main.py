@@ -4,9 +4,9 @@ from pathlib import Path
 
 import schedule
 
-from src import config, db_local, embeddings, library, seed, server, sync, tagging
-from src.export_static import export_static
-from src.logging_utils import get_logger, setup_logging
+from backend import config, db_local, embeddings, library, seed, server, sync, tagging
+from backend.export_static import export_static
+from backend.logging_utils import get_logger, setup_logging
 
 log = get_logger(__name__)
 

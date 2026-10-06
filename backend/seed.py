@@ -4,8 +4,8 @@
 intrecciano tra le frasi, cosi' la nebulosa risulta fitta e collegata.
 """
 
-from src import db_local
-from src.logging_utils import get_logger
+from backend import db_local
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 

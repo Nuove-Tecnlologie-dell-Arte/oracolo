@@ -29,8 +29,8 @@ from collections import Counter, defaultdict
 
 import requests
 
-from src import config, db_local, embeddings, library
-from src.logging_utils import get_logger
+from backend import config, db_local, embeddings, library
+from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
 
