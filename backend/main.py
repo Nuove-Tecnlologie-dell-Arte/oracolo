@@ -141,6 +141,11 @@ def main() -> None:
     args = parser.parse_args()
     setup_logging()
     log.info("DB locale: %s", Path(config.LOCAL_DB_PATH).resolve())
+    # Crea lo schema o applica le migrazioni (es. nuove colonne) qualunque
+    # sia il comando: altrimenti un DB esistente creato da una versione
+    # precedente resta senza le colonne nuove finche' non si esegue 'sync'
+    # o 'ingest' (gli unici che chiamavano init_db() per conto loro).
+    db_local.init_db()
 
     commands = {
         "sync": do_sync,
