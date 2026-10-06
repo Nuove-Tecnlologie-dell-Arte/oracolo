@@ -174,6 +174,17 @@ def get_untagged_entries() -> list[sqlite3.Row]:
         ).fetchall()
 
 
+def reset_all_tagged() -> int:
+    """Azzera tagged_at su tutte le entry gia' taggate, cosi' il prossimo
+    'tag' le riprocessa da capo (serve per ricalcolare noise_score sulle
+    entry taggate prima che esistesse, o dopo un cambio di modello/prompt).
+    Ritorna quante ne ha azzerate."""
+    with get_connection() as conn:
+        return conn.execute(
+            "UPDATE entries SET tagged_at = NULL WHERE tagged_at IS NOT NULL"
+        ).rowcount
+
+
 def set_entry_tags(entry_id: int, tag_names: list[str]) -> None:
     with get_connection() as conn:
         conn.execute("DELETE FROM entry_tags WHERE entry_id = ?", (entry_id,))

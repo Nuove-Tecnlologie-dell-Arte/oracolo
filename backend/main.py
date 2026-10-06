@@ -16,7 +16,10 @@ def do_sync() -> None:
     print(f"[sync] {n} entry sincronizzate dalla sorgente remota")
 
 
-def do_tag() -> None:
+def do_tag(args: argparse.Namespace) -> None:
+    if args.retag:
+        reset = db_local.reset_all_tagged()
+        print(f"[tag] --retag: {reset} entry gia' taggate verranno riprocessate da capo")
     n = tagging.tag_pending_entries()
     print(f"[tag] {n} entry taggate con Ollama")
 
@@ -65,19 +68,23 @@ def do_export(args: argparse.Namespace) -> None:
     print(f"[export] export statico pronto in {args.out} (base: {args.base})")
 
 
-def do_pipeline() -> None:
+def do_pipeline(args: argparse.Namespace) -> None:
     do_sync()
-    do_tag()
+    do_tag(args)
     do_embed()
 
 
-def run_loop() -> None:
+def run_loop(args: argparse.Namespace) -> None:
     print(
         f"[run] avvio con intervallo di {config.SYNC_INTERVAL_MINUTES} minuti "
         "(Ctrl+C per fermare)"
     )
-    do_pipeline()
-    schedule.every(config.SYNC_INTERVAL_MINUTES).minutes.do(do_pipeline)
+    do_pipeline(args)
+    # --retag si applica solo al primo giro: ai successivi (automatici, ogni
+    # SYNC_INTERVAL_MINUTES) non va ripetuto, altrimenti si rifarebbe tutto
+    # il tagging per sempre invece che solo le entry nuove.
+    recurring_args = argparse.Namespace(**{**vars(args), "retag": False})
+    schedule.every(config.SYNC_INTERVAL_MINUTES).minutes.do(do_pipeline, recurring_args)
     while True:
         schedule.run_pending()
         time.sleep(1)
@@ -88,7 +95,11 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("sync", help="Sincronizza le entry da MySQL a locale")
-    subparsers.add_parser("tag", help="Tagga le entry non ancora processate")
+    tag_parser = subparsers.add_parser("tag", help="Tagga le entry non ancora processate")
+    tag_parser.add_argument(
+        "--retag", action="store_true",
+        help="Riprocessa anche le entry gia' taggate (es. per ricalcolare 'rumore' dopo un aggiornamento)",
+    )
     subparsers.add_parser(
         "embed",
         help="Prepara le entry per l'Oracolo (vettori di similarita'); altrimenti avviene alla prima domanda",
@@ -103,8 +114,10 @@ def main() -> None:
     )
     ingest_parser.add_argument("--forget", metavar="FILE", help="Toglie dalla nebulosa un testo gia' letto")
     ingest_parser.add_argument("--list", action="store_true", help="Elenca i testi letti, senza leggerne di nuovi")
-    subparsers.add_parser("pipeline", help="Esegue sync + tag + embed una volta")
-    subparsers.add_parser("run", help="Esegue la pipeline in loop, a intervalli")
+    pipeline_parser = subparsers.add_parser("pipeline", help="Esegue sync + tag + embed una volta")
+    pipeline_parser.add_argument("--retag", action="store_true", help="Vedi 'tag --retag'")
+    run_parser = subparsers.add_parser("run", help="Esegue la pipeline in loop, a intervalli")
+    run_parser.add_argument("--retag", action="store_true", help="Vedi 'tag --retag' (si applica solo al primo giro)")
     subparsers.add_parser(
         "serve",
         help="Avvia il webserver locale che serve il frontend Nebulosa e /api/graph, /api/tag/<nome>",
@@ -131,11 +144,11 @@ def main() -> None:
 
     commands = {
         "sync": do_sync,
-        "tag": do_tag,
+        "tag": lambda: do_tag(args),
         "embed": do_embed,
         "ingest": lambda: do_ingest(args),
-        "pipeline": do_pipeline,
-        "run": run_loop,
+        "pipeline": lambda: do_pipeline(args),
+        "run": lambda: run_loop(args),
         "serve": do_serve,
         "seed": do_seed,
         "export": lambda: do_export(args),

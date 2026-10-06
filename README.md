@@ -76,6 +76,7 @@ quindi non serve ricompilare nulla quando cambiano solo i contenuti.
 ```bash
 python -m backend.main sync      # scarica/aggiorna i pensieri dalla sorgente remota (MySQL)
 python -m backend.main tag       # assegna i temi ai pensieri nuovi/modificati, via Ollama
+python -m backend.main tag --retag  # come sopra, ma riprocessa anche i pensieri gia' taggati
 python -m backend.main embed     # prepara i pensieri per l'Oracolo (calcola i vettori di similarità)
 python -m backend.main ingest    # fa leggere all'Oracolo i PDF e i TXT nella cartella testi/
 python -m backend.main pipeline  # sync + tag + embed, una volta
