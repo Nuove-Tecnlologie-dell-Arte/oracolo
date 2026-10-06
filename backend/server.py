@@ -24,6 +24,20 @@ def _category_filter(query: dict) -> str | None:
         return None
     return value
 
+
+# Soglia usata se il frontend non ne passa una: vedi db_local.get_entries_by_noise_score.
+DEFAULT_NOISE_THRESHOLD = 0.5
+
+
+def _noise_threshold(query: dict) -> float:
+    """Legge ?min_score=... dalla query string (0-1); il default se assente
+    o non numerico."""
+    try:
+        value = float((query.get("min_score") or [""])[0])
+    except ValueError:
+        return DEFAULT_NOISE_THRESHOLD
+    return min(1.0, max(0.0, value))
+
 # Momento in cui questo server e' partito: un server legge il codice solo
 # all'avvio, quindi dopo un aggiornamento va riavviato.
 STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -117,6 +131,13 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/api/suggestions":
             self._send_json(200, {"questions": oracle.suggestions()})
+            return
+        if path == "/api/noise":
+            query = parse_qs(urlsplit(self.path).query)
+            entries = db_local.get_entries_by_noise_score(
+                _category_filter(query), _noise_threshold(query)
+            )
+            self._send_json(200, {"entries": entries})
             return
         if path == "/api/health":
             self._send_json(200, _health())

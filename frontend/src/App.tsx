@@ -5,11 +5,13 @@ import {
   askOracle,
   fetchFigure,
   fetchGraph,
+  fetchNoiseEntries,
   fetchOracleAnswer,
   fetchStarQuestion,
   fetchSuggestions,
   fetchTagDetail,
   type Category,
+  type NoiseEntry,
   type TagDetail,
   type TagGraph,
 } from '@/lib/api';
@@ -33,6 +35,9 @@ type GraphNode = {
   fz?: number;
   // Sfera disegnata dal grafo per questa stella (serve per lo scintillio).
   __threeObj?: StarObject;
+  // Assente per le stelle (i tag): un nodo-messaggio del pulsante "rumore
+  // di fondo", non cliccabile come una stella.
+  kind?: 'message';
 };
 
 // Cio' che ci serve della sfera three.js di una stella.
@@ -55,6 +60,13 @@ type GraphLink = {
 const LINK_DISTANCE = 40;
 const LINK_STRENGTH = 0.4;
 const CHARGE_STRENGTH = -200;
+// Collegamento di un nodo-messaggio (vedi noiseNodes) alla sua stella: molto
+// corto e debole, cosi' resta vicino senza tirare la stella verso di se'
+// (sono tanti: anche una forza piccola, su migliaia di messaggi, sommata
+// sposterebbe le stelle). Il nodo non esercita repulsione (vedi CHARGE
+// piu' sotto): senza, la sola loro presenza spingerebbe la nebulosa intera.
+const NOISE_LINK_DISTANCE = 6;
+const NOISE_LINK_STRENGTH = 0.04;
 
 // Inquadratura di una stella aperta: la camera si allontana quanto basta a
 // mostrare anche le stelle a cui e' collegata. Si tiene dentro questa parte
@@ -338,11 +350,17 @@ function categoryFromUrl(): Category {
   return CATEGORY_OPTIONS.some((opt) => opt.value === value) ? (value as Category) : 'tutti';
 }
 
-// Tag assegnato dal backend (vedi backend/tagging.py) alle entry da cui
-// Ollama non riesce a estrarre nessun tag: non e' una categoria (non cambia
-// la sorgente dei dati), ma un tag come un altro. Il pulsante dedicato apre
-// direttamente la sua scheda, senza ricaricare la pagina.
-const NOISE_TAG = 'rumore di fondo';
+// Pulsante "rumore di fondo": accende/spegne un nodo per ogni entry con
+// punteggio di rumore (assegnato da Ollama in fase di tag, vedi
+// backend/tagging.py) almeno pari alla soglia, regolabile con +/-.
+const NOISE_THRESHOLD_DEFAULT = 0.5;
+const NOISE_THRESHOLD_STEP = 0.1;
+// Lunghezza del testo mostrato come etichetta di un nodo-messaggio.
+const NOISE_LABEL_LENGTH = 80;
+// Raggio (nelle unita' del grafo) attorno alla stella scelta a caso in cui
+// nasce ogni nodo-messaggio (vedi noiseNodes): si mescolano cosi' alle
+// stelle esistenti invece di restare un gruppo isolato per conto proprio.
+const NOISE_SPREAD = 20;
 
 export default function App() {
   const [category] = useState<Category>(categoryFromUrl);
@@ -394,6 +412,12 @@ export default function App() {
   // tra le stelle restano visibili come nella nebulosa.
   const [activeShape, setActiveShape] = useState<ShapeId | null>(null);
   const shapeActive = activeShape !== null;
+
+  // Nodi-messaggio del pulsante "rumore di fondo" (vedi NOISE_TAG): quali
+  // compaiono dipende dalla soglia, regolabile con i tasti +/- li' accanto.
+  const [noiseVisible, setNoiseVisible] = useState(false);
+  const [noiseThreshold, setNoiseThreshold] = useState(NOISE_THRESHOLD_DEFAULT);
+  const [noiseEntries, setNoiseEntries] = useState<NoiseEntry[]>([]);
 
   const graphRef = useRef<ForceGraphHandle | undefined>(undefined);
   const glowRef = useRef<HTMLDivElement>(null);
@@ -470,10 +494,53 @@ export default function App() {
     return { anchorByTag, outlineLinks, view };
   }, [graphData.nodes, activeShape]);
 
+  // Nodi-messaggio del pulsante "rumore di fondo": uno per entry sopra la
+  // soglia. Niente fx/fy/fz: si muovono liberi nella simulazione come
+  // qualunque stella, seguendo il corpo unico della nebulosa invece di
+  // restare immobili. Un legame debole e corto (vedi NOISE_LINK_*) verso
+  // una stella scelta in base al proprio id (stabile tra un refresh e
+  // l'altro della soglia) li tiene vicini senza tirarla a se': il nodo non
+  // esercita repulsione (vedi charge piu' sotto), quindi non sposta la
+  // nebulosa solo per il fatto di esserci.
+  const noiseNodes = useMemo<GraphNode[]>(() => {
+    if (!noiseVisible || !nodes.length) return [];
+    return noiseEntries.map((entry) => {
+      const anchor = nodes[Math.floor(hash01(`rumore:${entry.id}`) * nodes.length) % nodes.length];
+      const key = `rumore:${entry.id}`;
+      return {
+        id: `msg:${entry.id}`,
+        label: entry.text.length > NOISE_LABEL_LENGTH
+          ? `${entry.text.slice(0, NOISE_LABEL_LENGTH)}…`
+          : entry.text,
+        count: 0,
+        cluster: -1,
+        kind: 'message' as const,
+        x: (anchor.x ?? 0) + (hash01(`${key}:x`) - 0.5) * NOISE_SPREAD,
+        y: (anchor.y ?? 0) + (hash01(`${key}:y`) - 0.5) * NOISE_SPREAD,
+        z: (anchor.z ?? 0) + (hash01(`${key}:z`) - 0.5) * NOISE_SPREAD,
+      };
+    });
+  }, [noiseVisible, noiseEntries, nodes]);
+
+  const noiseLinks = useMemo<GraphLink[]>(() => {
+    if (!noiseVisible || !nodes.length) return [];
+    return noiseEntries.map((entry) => {
+      const anchor = nodes[Math.floor(hash01(`rumore:${entry.id}`) * nodes.length) % nodes.length];
+      return { source: anchor.id, target: `msg:${entry.id}`, value: 1 };
+    });
+  }, [noiseVisible, noiseEntries, nodes]);
+
   const graph = useMemo<{ nodes: GraphNode[]; links: GraphLink[] }>(() => ({
-    nodes,
-    links: [...tagLinks, ...constellation.outlineLinks],
-  }), [nodes, tagLinks, constellation]);
+    nodes: [...nodes, ...noiseNodes],
+    links: [...tagLinks, ...constellation.outlineLinks, ...noiseLinks],
+  }), [nodes, tagLinks, constellation, noiseNodes, noiseLinks]);
+
+  // I nuovi nodi/collegamenti (vedi noiseNodes/noiseLinks) hanno bisogno di
+  // energia nella simulazione per raggiungere la loro stella: senza,
+  // l'alpha quasi esaurito dopo tanto tempo li lascerebbe dove sono nati.
+  useEffect(() => {
+    if (noiseVisible && noiseNodes.length) graphRef.current?.d3ReheatSimulation();
+  }, [noiseVisible, noiseNodes]);
 
   // Colore di ogni stella libera, secondo quante frasi ha il suo tag (in
   // scala logaritmica: pochi tag hanno moltissime frasi).
@@ -633,11 +700,20 @@ export default function App() {
 
       // Attrazione lungo i collegamenti e repulsione tra le stelle: insieme
       // decidono quanto si allarga la nebulosa quando le stelle sono libere.
-      const linkForce = fg.d3Force('link') as { distance: (d: number) => void; strength: (s: number) => void } | undefined;
-      linkForce?.distance(LINK_DISTANCE);
-      linkForce?.strength(LINK_STRENGTH);
-      const charge = fg.d3Force('charge') as { strength: (s: number) => void } | undefined;
-      charge?.strength(CHARGE_STRENGTH);
+      // I collegamenti di un nodo-messaggio (vedi noiseNodes) alla sua
+      // stella sono piu' corti e deboli dei collegamenti tra tag.
+      const isNoiseLink = (link: GraphLink) => endpoints(link).some((id) => id.startsWith('msg:'));
+      const linkForce = fg.d3Force('link') as {
+        distance: (d: (link: GraphLink) => number) => void;
+        strength: (s: (link: GraphLink) => number) => void;
+      } | undefined;
+      linkForce?.distance((link) => (isNoiseLink(link) ? NOISE_LINK_DISTANCE : LINK_DISTANCE));
+      linkForce?.strength((link) => (isNoiseLink(link) ? NOISE_LINK_STRENGTH : LINK_STRENGTH));
+      // Un nodo-messaggio non respinge nessuno (altrimenti la sola loro
+      // presenza, essendo tanti, spingerebbe via l'intera nebulosa): subisce
+      // la repulsione delle stelle ma non ne esercita.
+      const charge = fg.d3Force('charge') as { strength: (s: (node: GraphNode) => number) => void } | undefined;
+      charge?.strength((node) => (node.kind === 'message' ? 0 : CHARGE_STRENGTH));
       fg.d3ReheatSimulation();
 
       // Navigazione: rotazione con inerzia, zoom verso il puntatore (si
@@ -844,13 +920,23 @@ export default function App() {
     selectTag(node.id);
   };
 
-  // Apre direttamente la scheda del tag "rumore di fondo" (vedi NOISE_TAG):
-  // stessa scheda di qualunque altra stella, solo raggiunta da un pulsante
-  // invece che cercandola nella nebulosa.
-  const showNoise = useCallback(() => {
-    selectTag(NOISE_TAG);
-    setPanelOpen(true);
-  }, [selectTag]);
+  // Accende/spegne i nodi-messaggio di "rumore di fondo".
+  const toggleNoise = useCallback(() => {
+    setNoiseVisible((visible) => !visible);
+  }, []);
+
+  // Soglia regolabile con i pulsanti +/-: ogni variazione, mentre la
+  // visualizzazione e' accesa, richiede di nuovo l'elenco al server.
+  const adjustNoiseThreshold = useCallback((delta: number) => {
+    setNoiseThreshold((value) => Math.min(1, Math.max(0, Math.round((value + delta) * 10) / 10)));
+  }, []);
+
+  useEffect(() => {
+    if (!noiseVisible) return;
+    fetchNoiseEntries(category, noiseThreshold)
+      .then((entries) => setNoiseEntries(entries))
+      .catch(() => setNoiseEntries([]));
+  }, [noiseVisible, noiseThreshold, category]);
 
   // ── L'Oracolo ──
   useEffect(() => {
@@ -1506,6 +1592,10 @@ export default function App() {
   };
 
   const handleNodeClick = (node: GraphNode) => {
+    // Un nodo-messaggio di "rumore di fondo" non e' una stella: il testo
+    // completo si legge al passaggio del mouse (nodeLabel), il click non fa
+    // nulla.
+    if (node.kind === 'message') return;
     // Una stella vicina che mostra la sua domanda: sceglierla e' fare quella domanda.
     const question = starQuestions.find((q) => q.tag === node.id);
     if (question) followQuestion(question);
@@ -1629,6 +1719,9 @@ export default function App() {
           }}
           linkDirectionalParticleSpeed={0.0035}
           nodeColor={(node: GraphNode) => {
+            // Nodo-messaggio di "rumore di fondo": stile fisso, non partecipa
+            // a viaggio, figura o selezione come le stelle (sono tag).
+            if (node.kind === 'message') return '#ffffff';
             // Le stelle della figura del viaggio restano accese anche mentre
             // si legge una stella; nella rivelazione si accendono solo loro.
             if (figureIds.has(node.id) && !shapeActive) return revealing ? '#fff4dc' : FIGURE_COLOR;
@@ -1650,6 +1743,7 @@ export default function App() {
             return starColors.get(node.id) ?? '#e9d6cd';
           }}
           nodeVal={(node: GraphNode) => {
+            if (node.kind === 'message') return 0.6;
             // Stelle della figura: grandezza uniforme sullo schermo dal punto
             // di vista giusto (il raggio cresce con la distanza, quindi il
             // volume con depth^3). Le altre restano proporzionali ai frammenti.
@@ -1755,14 +1849,36 @@ export default function App() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            className="category-switch-btn noise-switch-btn"
-            onClick={showNoise}
-            title="Messaggi che Ollama non e' riuscito a taggare"
-          >
-            Rumore di fondo
-          </button>
+          <div className="noise-switch" role="group" aria-label="Rumore di fondo">
+            <button
+              type="button"
+              className={`category-switch-btn noise-switch-btn${noiseVisible ? ' active' : ''}`}
+              onClick={toggleNoise}
+              aria-pressed={noiseVisible}
+              title="Messaggi che Ollama considera rumore di fondo, sopra la soglia qui a fianco"
+            >
+              Rumore di fondo
+            </button>
+            <button
+              type="button"
+              className="noise-threshold-btn"
+              onClick={() => adjustNoiseThreshold(-NOISE_THRESHOLD_STEP)}
+              disabled={noiseThreshold <= 0}
+              aria-label="Soglia piu' permissiva"
+            >
+              −
+            </button>
+            <span className="noise-threshold-value">{Math.round(noiseThreshold * 100)}%</span>
+            <button
+              type="button"
+              className="noise-threshold-btn"
+              onClick={() => adjustNoiseThreshold(NOISE_THRESHOLD_STEP)}
+              disabled={noiseThreshold >= 1}
+              aria-label="Soglia piu' stringente"
+            >
+              +
+            </button>
+          </div>
           <a className="help-button" href={`${import.meta.env.BASE_URL}question.html`} aria-label="L'oracolo"><Sparkles size={16} strokeWidth={1.5} /></a>
           <button className="help-button" type="button" aria-label="Cos'è l'Oracolo" onClick={() => setShowAbout(true)}><CircleHelp size={17} strokeWidth={1.5} /></button>
         </div>

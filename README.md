@@ -59,10 +59,13 @@ al file per l'unica cosa da adattare: il nome della tabella MySQL).
 Per il frontend, la prima volta:
 
 ```bash
-cd frontend
-npm install
-npm run build   # genera dist/, servito da `python -m backend.main serve`
+npm run frontend:install   # equivalente a: cd frontend && npm install
+npm run build               # genera frontend/dist/, servito da `python -m backend.main serve`
 ```
+
+I comandi `build`, `dev`, `lint` e `typecheck` nel `package.json` della
+radice sono scorciatoie che restano nella home del progetto (non serve
+`cd frontend`): delegano al `package.json` dentro `frontend/`.
 
 Va ricostruito (`npm run build`) ogni volta che si modifica il codice React;
 i dati (tag/pensieri) invece sono letti dal server Python a ogni richiesta,
@@ -73,6 +76,7 @@ quindi non serve ricompilare nulla quando cambiano solo i contenuti.
 ```bash
 python -m backend.main sync      # scarica/aggiorna i pensieri dalla sorgente remota (MySQL)
 python -m backend.main tag       # assegna i temi ai pensieri nuovi/modificati, via Ollama
+python -m backend.main tag --retag  # come sopra, ma riprocessa anche i pensieri gia' taggati
 python -m backend.main embed     # prepara i pensieri per l'Oracolo (calcola i vettori di similarità)
 python -m backend.main ingest    # fa leggere all'Oracolo i PDF e i TXT nella cartella testi/
 python -m backend.main pipeline  # sync + tag + embed, una volta
@@ -312,6 +316,7 @@ di chiudere la connessione.
 | --- | --- | --- |
 | GET | `/api/graph?category=<tutti\|tesi\|interviste\|stampante>` | nodi (tag) e archi (co-occorrenze) del grafo |
 | GET | `/api/tag/<nome>?category=<...>` | frammenti e tag collegati per un singolo tag |
+| GET | `/api/noise?category=<...>&min_score=<0-1>` | entry col punteggio di rumore (vedi `backend/tagging.py`) almeno `min_score` (default 0.5): alimenta i nodi-messaggio del pulsante dedicato nell'header, la cui soglia si regola con +/- |
 | GET | `/api/questions` | domande evocative generate al volo (`question.html`) |
 | GET | `/api/suggestions` | domande da proporre a chi entra |
 | GET | `/api/oracle/question?tag=<nome>&trail=<tag,precedenti>` | domanda che l'Oracolo fa a chi si ferma su una stella |
