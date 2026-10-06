@@ -12,6 +12,7 @@ from array import array
 
 from backend import config, db_local, ollama
 from backend.logging_utils import get_logger
+from backend.progress import advance, new_bar
 
 log = get_logger(__name__)
 
@@ -29,15 +30,23 @@ def normalized(values) -> array:
     return array("f", (v / norm for v in values))
 
 
-def embed_texts(texts: list[str]) -> list[array]:
-    """Chiede a Ollama i vettori (normalizzati) di una lista di testi."""
+def embed_texts(texts: list[str], on_batch=None) -> list[array]:
+    """Chiede a Ollama i vettori (normalizzati) di una lista di testi.
+
+    `on_batch`, se dato, viene richiamato con la dimensione di ogni lotto
+    appena calcolato: permette a chi chiama di avanzare una propria barra di
+    avanzamento senza che embed_texts debba saperne nulla (vedi library.py).
+    """
     vectors: list[array] = []
     for start in range(0, len(texts), BATCH_SIZE):
+        batch = texts[start : start + BATCH_SIZE]
         reply = ollama.post(
             "/api/embed",
-            {"model": config.OLLAMA_EMBED_MODEL, "input": texts[start : start + BATCH_SIZE]},
+            {"model": config.OLLAMA_EMBED_MODEL, "input": batch},
         )
         vectors.extend(normalized(v) for v in reply["embeddings"])
+        if on_batch:
+            on_batch(len(batch))
     return vectors
 
 
@@ -62,6 +71,7 @@ def ensure_entry_embeddings(entries: list[dict]) -> int:
         "Calcolo i vettori di similarita' per %d entry (modello '%s' su %s)...",
         len(pending), config.OLLAMA_EMBED_MODEL, config.OLLAMA_HOST,
     )
+    progress = new_bar(len(pending), desc="Embedding", unit="entry")
     for start in range(0, len(pending), BATCH_SIZE):
         batch = pending[start : start + BATCH_SIZE]
         vectors = embed_texts([e["text"] for e in batch])
@@ -76,6 +86,8 @@ def ensure_entry_embeddings(entries: list[dict]) -> int:
                 for e, vector in zip(batch, vectors)
             ]
         )
+        advance(progress, by=len(batch))
+    progress.close()
     log.info("Vettori di similarita' aggiornati (%d entry)", len(pending))
     return len(pending)
 

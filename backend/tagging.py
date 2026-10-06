@@ -4,8 +4,14 @@ import requests
 
 from backend import config, db_local
 from backend.logging_utils import get_logger
+from backend.progress import advance, new_bar
 
 log = get_logger(__name__)
+
+# Tag assegnato alle entry da cui Ollama non riesce a estrarre nessun tag
+# (testo spazzatura, troppo corto o senza senso): senza, l'entry resterebbe
+# "non taggata" per sempre e verrebbe ritentata a ogni tagging successivo.
+NOISE_TAG = "rumore di fondo"
 
 TAG_PROMPT = """Analizza il seguente testo e assegna da 1 a {max_tags} tag \
 brevi (una o due parole ciascuno) che ne descrivano il tema/argomento principale.
@@ -56,11 +62,14 @@ def _ask_ollama_for_tags(text: str) -> list[str]:
     try:
         parsed = json.loads(raw)
     except json.JSONDecodeError:
-        log.warning("Risposta di Ollama non e' JSON valido: %r", raw)
+        # Capita per testo spazzatura (vedi NOISE_TAG in tag_pending_entries):
+        # un warning per ogni caso romperebbe la barra di avanzamento, quindi
+        # resta a debug (LOG_LEVEL=DEBUG per vederlo).
+        log.debug("Risposta di Ollama non e' JSON valido: %r", raw)
         return []
     tags = _extract_tags(parsed)
     if not tags:
-        log.warning("Nessun tag estraibile dalla risposta di Ollama: %r", parsed)
+        log.debug("Nessun tag estraibile dalla risposta di Ollama: %r", parsed)
     return tags[: config.MAX_TAGS_PER_ENTRY]
 
 
@@ -83,20 +92,33 @@ def tag_pending_entries() -> int:
         return 0
 
     tagged = 0
-    for i, entry in enumerate(entries, start=1):
+    noise = 0
+    failed = 0
+    progress = new_bar(len(entries), desc="Tagging", unit="entry")
+    for entry in entries:
         try:
             tags = _ask_ollama_for_tags(entry["text"])
-        except requests.RequestException:
-            log.exception(
-                "Chiamata a Ollama fallita per entry id=%s (host %s raggiungibile?)",
-                entry["id"],
-                config.OLLAMA_HOST,
+        except requests.RequestException as error:
+            failed += 1
+            log.debug(
+                "Chiamata a Ollama fallita per entry id=%s (host %s raggiungibile?): %s",
+                entry["id"], config.OLLAMA_HOST, error,
             )
+            advance(progress, taggate=tagged, rumore=noise, errori=failed)
             continue
-        if tags:
-            db_local.set_entry_tags(entry["id"], tags)
-            tagged += 1
-            log.debug("[%d/%d] entry id=%s -> tag %s", i, len(entries), entry["id"], tags)
-        else:
-            log.warning("[%d/%d] entry id=%s: nessun tag ottenuto", i, len(entries), entry["id"])
+        if not tags:
+            noise += 1
+            tags = [NOISE_TAG]
+        db_local.set_entry_tags(entry["id"], tags)
+        tagged += 1
+        log.debug("entry id=%s -> tag %s", entry["id"], tags)
+        advance(progress, taggate=tagged, rumore=noise, errori=failed)
+    progress.close()
+    if failed:
+        log.warning(
+            "%d entry non taggate per errori di chiamata a Ollama (host %s raggiungibile?)",
+            failed, config.OLLAMA_HOST,
+        )
+    if noise:
+        log.info("%d entry senza tag estraibile, assegnate a '%s'", noise, NOISE_TAG)
     return tagged

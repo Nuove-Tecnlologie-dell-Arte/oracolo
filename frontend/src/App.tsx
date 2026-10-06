@@ -338,6 +338,12 @@ function categoryFromUrl(): Category {
   return CATEGORY_OPTIONS.some((opt) => opt.value === value) ? (value as Category) : 'tutti';
 }
 
+// Tag assegnato dal backend (vedi backend/tagging.py) alle entry da cui
+// Ollama non riesce a estrarre nessun tag: non e' una categoria (non cambia
+// la sorgente dei dati), ma un tag come un altro. Il pulsante dedicato apre
+// direttamente la sua scheda, senza ricaricare la pagina.
+const NOISE_TAG = 'rumore di fondo';
+
 export default function App() {
   const [category] = useState<Category>(categoryFromUrl);
   const [graphData, setGraphData] = useState<TagGraph>(emptyGraph);
@@ -837,6 +843,14 @@ export default function App() {
   const selectSearchResult = (node: GraphNode) => {
     selectTag(node.id);
   };
+
+  // Apre direttamente la scheda del tag "rumore di fondo" (vedi NOISE_TAG):
+  // stessa scheda di qualunque altra stella, solo raggiunta da un pulsante
+  // invece che cercandola nella nebulosa.
+  const showNoise = useCallback(() => {
+    selectTag(NOISE_TAG);
+    setPanelOpen(true);
+  }, [selectTag]);
 
   // ── L'Oracolo ──
   useEffect(() => {
@@ -1741,6 +1755,14 @@ export default function App() {
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            className="category-switch-btn noise-switch-btn"
+            onClick={showNoise}
+            title="Messaggi che Ollama non e' riuscito a taggare"
+          >
+            Rumore di fondo
+          </button>
           <a className="help-button" href={`${import.meta.env.BASE_URL}question.html`} aria-label="L'oracolo"><Sparkles size={16} strokeWidth={1.5} /></a>
           <button className="help-button" type="button" aria-label="Cos'è l'Oracolo" onClick={() => setShowAbout(true)}><CircleHelp size={17} strokeWidth={1.5} /></button>
         </div>

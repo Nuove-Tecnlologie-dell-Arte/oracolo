@@ -26,6 +26,7 @@ from pypdf import PdfReader
 
 from backend import config, db_local, embeddings, themes
 from backend.logging_utils import get_logger
+from backend.progress import advance, new_bar
 
 log = get_logger(__name__)
 
@@ -436,7 +437,9 @@ def _ingest(job: dict, index: themes.ThemeIndex) -> dict:
             "scansionate va prima convertito in testo)"
         )
     log.info("'%s' (%s): %d passi, calcolo i vettori di similarita'...", title, author, len(passages))
-    vectors = embeddings.embed_texts(passages)
+    progress = new_bar(len(passages), desc="Embedding passi", unit="passo")
+    vectors = embeddings.embed_texts(passages, on_batch=lambda n: advance(progress, by=n))
+    progress.close()
     # L'impronta si registra solo alla fine (vedi finish_source).
     source_id = db_local.replace_source(key, title, author, kind, "")
     passage_ids = db_local.insert_passages(
@@ -468,8 +471,11 @@ def _ingest(job: dict, index: themes.ThemeIndex) -> dict:
             for fragment, vector in zip(fragments, quote_vectors)
         ]
     )
+    progress = new_bar(len(fragments), desc="Temi citazioni", unit="citazione")
     for fragment, vector in zip(fragments, quote_vectors):
         db_local.set_entry_tags(fragment["id"], themes.assign(fragment["text"], vector, index))
+        advance(progress)
+    progress.close()
     db_local.finish_source(source_id, job["content_hash"])
     return {"file": key, "title": title, "author": author, "passages": len(passages), "fragments": len(fragments)}
 
