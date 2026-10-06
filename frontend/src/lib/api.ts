@@ -65,6 +65,16 @@ export async function fetchTagDetail(name: string, category: Category = 'tutti')
   return res.json();
 }
 
+// Messaggio taggato "rumore di fondo" (vedi backend/tagging.py): mostrato
+// come un nodo a parte quando si attiva il pulsante dedicato nell'header.
+export type NoiseEntry = { id: number; text: string };
+
+export async function fetchNoiseEntries(category: Category = 'tutti'): Promise<NoiseEntry[]> {
+  const res = await fetch(`${API_BASE}api/noise?category=${category}`);
+  if (!res.ok) throw new Error('Impossibile caricare i messaggi di rumore di fondo');
+  return (await res.json()).entries;
+}
+
 // ── L'Oracolo ──
 // Pensiero della nebulosa a cui l'Oracolo si e' ispirato.
 export type OracleThought = {

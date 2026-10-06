@@ -5,11 +5,13 @@ import {
   askOracle,
   fetchFigure,
   fetchGraph,
+  fetchNoiseEntries,
   fetchOracleAnswer,
   fetchStarQuestion,
   fetchSuggestions,
   fetchTagDetail,
   type Category,
+  type NoiseEntry,
   type TagDetail,
   type TagGraph,
 } from '@/lib/api';
@@ -33,6 +35,9 @@ type GraphNode = {
   fz?: number;
   // Sfera disegnata dal grafo per questa stella (serve per lo scintillio).
   __threeObj?: StarObject;
+  // Assente per le stelle (i tag): un nodo-messaggio del pulsante "rumore
+  // di fondo" (vedi NOISE_TAG), non cliccabile come una stella.
+  kind?: 'message';
 };
 
 // Cio' che ci serve della sfera three.js di una stella.
@@ -340,9 +345,15 @@ function categoryFromUrl(): Category {
 
 // Tag assegnato dal backend (vedi backend/tagging.py) alle entry da cui
 // Ollama non riesce a estrarre nessun tag: non e' una categoria (non cambia
-// la sorgente dei dati), ma un tag come un altro. Il pulsante dedicato apre
-// direttamente la sua scheda, senza ricaricare la pagina.
+// la sorgente dei dati), ma un tag come un altro. Il pulsante dedicato
+// accende/spegne un nodo per ciascuno di questi messaggi, agganciato alla
+// stella "rumore di fondo" se presente nella vista attuale.
 const NOISE_TAG = 'rumore di fondo';
+// Lunghezza del testo mostrato come etichetta di un nodo-messaggio.
+const NOISE_LABEL_LENGTH = 80;
+// Raggio (nelle unita' del grafo) attorno alla stella "rumore di fondo" in
+// cui nascono i suoi nodi-messaggio.
+const NOISE_SPREAD = 20;
 
 export default function App() {
   const [category] = useState<Category>(categoryFromUrl);
@@ -394,6 +405,12 @@ export default function App() {
   // tra le stelle restano visibili come nella nebulosa.
   const [activeShape, setActiveShape] = useState<ShapeId | null>(null);
   const shapeActive = activeShape !== null;
+
+  // Nodi-messaggio del pulsante "rumore di fondo" (vedi NOISE_TAG): caricati
+  // una sola volta al primo attivarsi, poi solo accesi o spenti.
+  const [noiseVisible, setNoiseVisible] = useState(false);
+  const [noiseEntries, setNoiseEntries] = useState<NoiseEntry[]>([]);
+  const [noiseLoaded, setNoiseLoaded] = useState(false);
 
   const graphRef = useRef<ForceGraphHandle | undefined>(undefined);
   const glowRef = useRef<HTMLDivElement>(null);
@@ -470,10 +487,38 @@ export default function App() {
     return { anchorByTag, outlineLinks, view };
   }, [graphData.nodes, activeShape]);
 
+  // Nodi-messaggio del pulsante "rumore di fondo": uno per entry, SENZA
+  // nessun collegamento (sono entry con un solo tag, "rumore di fondo", che
+  // quindi non condivide mai nessun altro tema: agganciarli solo a quella
+  // stella la isolerebbe dal resto, e la repulsione della simulazione la
+  // spingerebbe sempre piu' lontano dal resto della nebulosa). Si mescolano
+  // invece alle stelle esistenti: ognuno nasce vicino a una stella scelta a
+  // caso e resta fissato li' (fx/fy/fz), cosi' non viene mai spinto via.
+  const noiseNodes = useMemo<GraphNode[]>(() => {
+    if (!noiseVisible || !nodes.length) return [];
+    return noiseEntries.map((entry) => {
+      const anchor = nodes[Math.floor(Math.random() * nodes.length)];
+      const x = (anchor.x ?? 0) + (Math.random() - 0.5) * NOISE_SPREAD;
+      const y = (anchor.y ?? 0) + (Math.random() - 0.5) * NOISE_SPREAD;
+      const z = (anchor.z ?? 0) + (Math.random() - 0.5) * NOISE_SPREAD;
+      return {
+        id: `msg:${entry.id}`,
+        label: entry.text.length > NOISE_LABEL_LENGTH
+          ? `${entry.text.slice(0, NOISE_LABEL_LENGTH)}…`
+          : entry.text,
+        count: 0,
+        cluster: -1,
+        kind: 'message' as const,
+        x, y, z, fx: x, fy: y, fz: z,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [noiseVisible, noiseEntries]);
+
   const graph = useMemo<{ nodes: GraphNode[]; links: GraphLink[] }>(() => ({
-    nodes,
+    nodes: [...nodes, ...noiseNodes],
     links: [...tagLinks, ...constellation.outlineLinks],
-  }), [nodes, tagLinks, constellation]);
+  }), [nodes, tagLinks, constellation, noiseNodes]);
 
   // Colore di ogni stella libera, secondo quante frasi ha il suo tag (in
   // scala logaritmica: pochi tag hanno moltissime frasi).
@@ -844,13 +889,19 @@ export default function App() {
     selectTag(node.id);
   };
 
-  // Apre direttamente la scheda del tag "rumore di fondo" (vedi NOISE_TAG):
-  // stessa scheda di qualunque altra stella, solo raggiunta da un pulsante
-  // invece che cercandola nella nebulosa.
-  const showNoise = useCallback(() => {
-    selectTag(NOISE_TAG);
-    setPanelOpen(true);
-  }, [selectTag]);
+  // Accende/spegne i nodi-messaggio di "rumore di fondo" (vedi NOISE_TAG):
+  // caricati dal server solo la prima volta che il pulsante si attiva.
+  const toggleNoise = useCallback(() => {
+    setNoiseVisible((visible) => !visible);
+  }, []);
+
+  useEffect(() => {
+    if (!noiseVisible || noiseLoaded) return;
+    fetchNoiseEntries(category)
+      .then((entries) => setNoiseEntries(entries))
+      .catch(() => setNoiseEntries([]))
+      .finally(() => setNoiseLoaded(true));
+  }, [noiseVisible, noiseLoaded, category]);
 
   // ── L'Oracolo ──
   useEffect(() => {
@@ -1506,6 +1557,10 @@ export default function App() {
   };
 
   const handleNodeClick = (node: GraphNode) => {
+    // Un nodo-messaggio di "rumore di fondo" non e' una stella: il testo
+    // completo si legge al passaggio del mouse (nodeLabel), il click non fa
+    // nulla.
+    if (node.kind === 'message') return;
     // Una stella vicina che mostra la sua domanda: sceglierla e' fare quella domanda.
     const question = starQuestions.find((q) => q.tag === node.id);
     if (question) followQuestion(question);
@@ -1629,6 +1684,9 @@ export default function App() {
           }}
           linkDirectionalParticleSpeed={0.0035}
           nodeColor={(node: GraphNode) => {
+            // Nodo-messaggio di "rumore di fondo": stile fisso, non partecipa
+            // a viaggio, figura o selezione come le stelle (sono tag).
+            if (node.kind === 'message') return '#ffffff';
             // Le stelle della figura del viaggio restano accese anche mentre
             // si legge una stella; nella rivelazione si accendono solo loro.
             if (figureIds.has(node.id) && !shapeActive) return revealing ? '#fff4dc' : FIGURE_COLOR;
@@ -1650,6 +1708,7 @@ export default function App() {
             return starColors.get(node.id) ?? '#e9d6cd';
           }}
           nodeVal={(node: GraphNode) => {
+            if (node.kind === 'message') return 0.6;
             // Stelle della figura: grandezza uniforme sullo schermo dal punto
             // di vista giusto (il raggio cresce con la distanza, quindi il
             // volume con depth^3). Le altre restano proporzionali ai frammenti.
@@ -1757,8 +1816,9 @@ export default function App() {
           </div>
           <button
             type="button"
-            className="category-switch-btn noise-switch-btn"
-            onClick={showNoise}
+            className={`category-switch-btn noise-switch-btn${noiseVisible ? ' active' : ''}`}
+            onClick={toggleNoise}
+            aria-pressed={noiseVisible}
             title="Messaggi che Ollama non e' riuscito a taggare"
           >
             Rumore di fondo

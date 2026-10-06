@@ -24,6 +24,18 @@ def _category_filter(query: dict) -> str | None:
         return None
     return value
 
+
+def _noise_entries(category: str | None) -> list[dict]:
+    """Le entry taggate 'rumore di fondo' (vedi backend/tagging.py), nella
+    categoria attiva nel frontend: usate per i nodi-messaggio del pulsante
+    dedicato, non per la scheda di dettaglio di un tag (niente limite)."""
+    entries = db_local.get_entries_with_tags(category)
+    return [
+        {"id": e["id"], "text": e["text"]}
+        for e in entries
+        if tagging.NOISE_TAG in e["tags"]
+    ]
+
 # Momento in cui questo server e' partito: un server legge il codice solo
 # all'avvio, quindi dopo un aggiornamento va riavviato.
 STARTED_AT = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -117,6 +129,10 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/api/suggestions":
             self._send_json(200, {"questions": oracle.suggestions()})
+            return
+        if path == "/api/noise":
+            query = parse_qs(urlsplit(self.path).query)
+            self._send_json(200, {"entries": _noise_entries(_category_filter(query))})
             return
         if path == "/api/health":
             self._send_json(200, _health())

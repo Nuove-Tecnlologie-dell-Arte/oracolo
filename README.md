@@ -59,10 +59,13 @@ al file per l'unica cosa da adattare: il nome della tabella MySQL).
 Per il frontend, la prima volta:
 
 ```bash
-cd frontend
-npm install
-npm run build   # genera dist/, servito da `python -m backend.main serve`
+npm run frontend:install   # equivalente a: cd frontend && npm install
+npm run build               # genera frontend/dist/, servito da `python -m backend.main serve`
 ```
+
+I comandi `build`, `dev`, `lint` e `typecheck` nel `package.json` della
+radice sono scorciatoie che restano nella home del progetto (non serve
+`cd frontend`): delegano al `package.json` dentro `frontend/`.
 
 Va ricostruito (`npm run build`) ogni volta che si modifica il codice React;
 i dati (tag/pensieri) invece sono letti dal server Python a ogni richiesta,
@@ -312,6 +315,7 @@ di chiudere la connessione.
 | --- | --- | --- |
 | GET | `/api/graph?category=<tutti\|tesi\|interviste\|stampante>` | nodi (tag) e archi (co-occorrenze) del grafo |
 | GET | `/api/tag/<nome>?category=<...>` | frammenti e tag collegati per un singolo tag |
+| GET | `/api/noise?category=<...>` | tutte le entry taggate "rumore di fondo" (vedi `backend/tagging.py`), senza il limite di `/api/tag/<nome>`: alimenta i nodi-messaggio del pulsante dedicato nell'header |
 | GET | `/api/questions` | domande evocative generate al volo (`question.html`) |
 | GET | `/api/suggestions` | domande da proporre a chi entra |
 | GET | `/api/oracle/question?tag=<nome>&trail=<tag,precedenti>` | domanda che l'Oracolo fa a chi si ferma su una stella |
