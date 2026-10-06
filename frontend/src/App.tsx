@@ -60,6 +60,13 @@ type GraphLink = {
 const LINK_DISTANCE = 40;
 const LINK_STRENGTH = 0.4;
 const CHARGE_STRENGTH = -200;
+// Collegamento di un nodo-messaggio (vedi noiseNodes) alla sua stella: molto
+// corto e debole, cosi' resta vicino senza tirare la stella verso di se'
+// (sono tanti: anche una forza piccola, su migliaia di messaggi, sommata
+// sposterebbe le stelle). Il nodo non esercita repulsione (vedi CHARGE
+// piu' sotto): senza, la sola loro presenza spingerebbe la nebulosa intera.
+const NOISE_LINK_DISTANCE = 6;
+const NOISE_LINK_STRENGTH = 0.04;
 
 // Inquadratura di una stella aperta: la camera si allontana quanto basta a
 // mostrare anche le stelle a cui e' collegata. Si tiene dentro questa parte
@@ -488,21 +495,18 @@ export default function App() {
   }, [graphData.nodes, activeShape]);
 
   // Nodi-messaggio del pulsante "rumore di fondo": uno per entry sopra la
-  // soglia, SENZA nessun collegamento (non condividono necessariamente
-  // nessun tema con nessuno: agganciarli a una sola stella li isolerebbe dal
-  // resto, e la repulsione della simulazione la spingerebbe sempre piu'
-  // lontano dalla nebulosa). Si mescolano invece alle stelle esistenti:
-  // ognuno nasce vicino a una stella scelta in base al proprio id (stabile
-  // tra un refresh e l'altro della soglia) e resta fissato li' (fx/fy/fz),
-  // cosi' non viene mai spinto via.
+  // soglia. Niente fx/fy/fz: si muovono liberi nella simulazione come
+  // qualunque stella, seguendo il corpo unico della nebulosa invece di
+  // restare immobili. Un legame debole e corto (vedi NOISE_LINK_*) verso
+  // una stella scelta in base al proprio id (stabile tra un refresh e
+  // l'altro della soglia) li tiene vicini senza tirarla a se': il nodo non
+  // esercita repulsione (vedi charge piu' sotto), quindi non sposta la
+  // nebulosa solo per il fatto di esserci.
   const noiseNodes = useMemo<GraphNode[]>(() => {
     if (!noiseVisible || !nodes.length) return [];
     return noiseEntries.map((entry) => {
+      const anchor = nodes[Math.floor(hash01(`rumore:${entry.id}`) * nodes.length) % nodes.length];
       const key = `rumore:${entry.id}`;
-      const anchor = nodes[Math.floor(hash01(key) * nodes.length) % nodes.length];
-      const x = (anchor.x ?? 0) + (hash01(`${key}:x`) - 0.5) * NOISE_SPREAD;
-      const y = (anchor.y ?? 0) + (hash01(`${key}:y`) - 0.5) * NOISE_SPREAD;
-      const z = (anchor.z ?? 0) + (hash01(`${key}:z`) - 0.5) * NOISE_SPREAD;
       return {
         id: `msg:${entry.id}`,
         label: entry.text.length > NOISE_LABEL_LENGTH
@@ -511,15 +515,32 @@ export default function App() {
         count: 0,
         cluster: -1,
         kind: 'message' as const,
-        x, y, z, fx: x, fy: y, fz: z,
+        x: (anchor.x ?? 0) + (hash01(`${key}:x`) - 0.5) * NOISE_SPREAD,
+        y: (anchor.y ?? 0) + (hash01(`${key}:y`) - 0.5) * NOISE_SPREAD,
+        z: (anchor.z ?? 0) + (hash01(`${key}:z`) - 0.5) * NOISE_SPREAD,
       };
+    });
+  }, [noiseVisible, noiseEntries, nodes]);
+
+  const noiseLinks = useMemo<GraphLink[]>(() => {
+    if (!noiseVisible || !nodes.length) return [];
+    return noiseEntries.map((entry) => {
+      const anchor = nodes[Math.floor(hash01(`rumore:${entry.id}`) * nodes.length) % nodes.length];
+      return { source: anchor.id, target: `msg:${entry.id}`, value: 1 };
     });
   }, [noiseVisible, noiseEntries, nodes]);
 
   const graph = useMemo<{ nodes: GraphNode[]; links: GraphLink[] }>(() => ({
     nodes: [...nodes, ...noiseNodes],
-    links: [...tagLinks, ...constellation.outlineLinks],
-  }), [nodes, tagLinks, constellation, noiseNodes]);
+    links: [...tagLinks, ...constellation.outlineLinks, ...noiseLinks],
+  }), [nodes, tagLinks, constellation, noiseNodes, noiseLinks]);
+
+  // I nuovi nodi/collegamenti (vedi noiseNodes/noiseLinks) hanno bisogno di
+  // energia nella simulazione per raggiungere la loro stella: senza,
+  // l'alpha quasi esaurito dopo tanto tempo li lascerebbe dove sono nati.
+  useEffect(() => {
+    if (noiseVisible && noiseNodes.length) graphRef.current?.d3ReheatSimulation();
+  }, [noiseVisible, noiseNodes]);
 
   // Colore di ogni stella libera, secondo quante frasi ha il suo tag (in
   // scala logaritmica: pochi tag hanno moltissime frasi).
@@ -679,11 +700,20 @@ export default function App() {
 
       // Attrazione lungo i collegamenti e repulsione tra le stelle: insieme
       // decidono quanto si allarga la nebulosa quando le stelle sono libere.
-      const linkForce = fg.d3Force('link') as { distance: (d: number) => void; strength: (s: number) => void } | undefined;
-      linkForce?.distance(LINK_DISTANCE);
-      linkForce?.strength(LINK_STRENGTH);
-      const charge = fg.d3Force('charge') as { strength: (s: number) => void } | undefined;
-      charge?.strength(CHARGE_STRENGTH);
+      // I collegamenti di un nodo-messaggio (vedi noiseNodes) alla sua
+      // stella sono piu' corti e deboli dei collegamenti tra tag.
+      const isNoiseLink = (link: GraphLink) => endpoints(link).some((id) => id.startsWith('msg:'));
+      const linkForce = fg.d3Force('link') as {
+        distance: (d: (link: GraphLink) => number) => void;
+        strength: (s: (link: GraphLink) => number) => void;
+      } | undefined;
+      linkForce?.distance((link) => (isNoiseLink(link) ? NOISE_LINK_DISTANCE : LINK_DISTANCE));
+      linkForce?.strength((link) => (isNoiseLink(link) ? NOISE_LINK_STRENGTH : LINK_STRENGTH));
+      // Un nodo-messaggio non respinge nessuno (altrimenti la sola loro
+      // presenza, essendo tanti, spingerebbe via l'intera nebulosa): subisce
+      // la repulsione delle stelle ma non ne esercita.
+      const charge = fg.d3Force('charge') as { strength: (s: (node: GraphNode) => number) => void } | undefined;
+      charge?.strength((node) => (node.kind === 'message' ? 0 : CHARGE_STRENGTH));
       fg.d3ReheatSimulation();
 
       // Navigazione: rotazione con inerzia, zoom verso il puntatore (si
