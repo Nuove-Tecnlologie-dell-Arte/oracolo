@@ -315,7 +315,7 @@ di chiudere la connessione.
 | --- | --- | --- |
 | GET | `/api/graph?category=<tutti\|tesi\|interviste\|stampante>` | nodi (tag) e archi (co-occorrenze) del grafo |
 | GET | `/api/tag/<nome>?category=<...>` | frammenti e tag collegati per un singolo tag |
-| GET | `/api/noise?category=<...>` | tutte le entry taggate "rumore di fondo" (vedi `backend/tagging.py`), senza il limite di `/api/tag/<nome>`: alimenta i nodi-messaggio del pulsante dedicato nell'header |
+| GET | `/api/noise?category=<...>&min_score=<0-1>` | entry col punteggio di rumore (vedi `backend/tagging.py`) almeno `min_score` (default 0.5): alimenta i nodi-messaggio del pulsante dedicato nell'header, la cui soglia si regola con +/- |
 | GET | `/api/questions` | domande evocative generate al volo (`question.html`) |
 | GET | `/api/suggestions` | domande da proporre a chi entra |
 | GET | `/api/oracle/question?tag=<nome>&trail=<tag,precedenti>` | domanda che l'Oracolo fa a chi si ferma su una stella |

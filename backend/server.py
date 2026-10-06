@@ -25,16 +25,18 @@ def _category_filter(query: dict) -> str | None:
     return value
 
 
-def _noise_entries(category: str | None) -> list[dict]:
-    """Le entry taggate 'rumore di fondo' (vedi backend/tagging.py), nella
-    categoria attiva nel frontend: usate per i nodi-messaggio del pulsante
-    dedicato, non per la scheda di dettaglio di un tag (niente limite)."""
-    entries = db_local.get_entries_with_tags(category)
-    return [
-        {"id": e["id"], "text": e["text"]}
-        for e in entries
-        if tagging.NOISE_TAG in e["tags"]
-    ]
+# Soglia usata se il frontend non ne passa una: vedi db_local.get_entries_by_noise_score.
+DEFAULT_NOISE_THRESHOLD = 0.5
+
+
+def _noise_threshold(query: dict) -> float:
+    """Legge ?min_score=... dalla query string (0-1); il default se assente
+    o non numerico."""
+    try:
+        value = float((query.get("min_score") or [""])[0])
+    except ValueError:
+        return DEFAULT_NOISE_THRESHOLD
+    return min(1.0, max(0.0, value))
 
 # Momento in cui questo server e' partito: un server legge il codice solo
 # all'avvio, quindi dopo un aggiornamento va riavviato.
@@ -132,7 +134,10 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/api/noise":
             query = parse_qs(urlsplit(self.path).query)
-            self._send_json(200, {"entries": _noise_entries(_category_filter(query))})
+            entries = db_local.get_entries_by_noise_score(
+                _category_filter(query), _noise_threshold(query)
+            )
+            self._send_json(200, {"entries": entries})
             return
         if path == "/api/health":
             self._send_json(200, _health())

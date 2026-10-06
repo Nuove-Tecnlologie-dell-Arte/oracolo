@@ -94,6 +94,11 @@ def init_db() -> None:
             conn.execute(
                 "ALTER TABLE entries ADD COLUMN category TEXT NOT NULL DEFAULT 'stampante'"
             )
+        if "noise_score" not in columns:
+            # Da 0 (sicuramente un pensiero vero) a 1 (sicuramente rumore di
+            # fondo), assegnato da Ollama in fase di tag (vedi backend/tagging.py).
+            # NULL finche' l'entry non e' stata (ri)taggata con questo campo.
+            conn.execute("ALTER TABLE entries ADD COLUMN noise_score REAL")
 
 
 def upsert_entries(rows: list[dict]) -> int:
@@ -190,6 +195,27 @@ def set_entry_tags(entry_id: int, tag_names: list[str]) -> None:
             "UPDATE entries SET tagged_at = CURRENT_TIMESTAMP WHERE id = ?",
             (entry_id,),
         )
+
+
+def set_noise_score(entry_id: int, score: float) -> None:
+    with get_connection() as conn:
+        conn.execute("UPDATE entries SET noise_score = ? WHERE id = ?", (score, entry_id))
+
+
+def get_entries_by_noise_score(category: str | None, min_score: float) -> list[dict]:
+    """Le entry con punteggio di rumore (vedi set_noise_score) almeno
+    `min_score`, qualunque sia la categoria o i tag che hanno: alimenta il
+    pulsante "rumore di fondo" del frontend, la cui soglia e' regolabile.
+    Le entry non ancora (ri)taggate con questo campo (noise_score NULL)
+    contano come 0, quindi non compaiono mai finche' non viene retaggata."""
+    init_db()
+    with get_connection() as conn:
+        query = "SELECT id, text FROM entries WHERE COALESCE(noise_score, 0) >= ?"
+        params: list = [min_score]
+        if category is not None:
+            query += " AND category = ?"
+            params.append(category)
+        return [dict(row) for row in conn.execute(query, params).fetchall()]
 
 
 def get_entries_with_tags(category: str | None = None) -> list[dict]:

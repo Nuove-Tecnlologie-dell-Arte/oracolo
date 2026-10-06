@@ -65,12 +65,13 @@ export async function fetchTagDetail(name: string, category: Category = 'tutti')
   return res.json();
 }
 
-// Messaggio taggato "rumore di fondo" (vedi backend/tagging.py): mostrato
-// come un nodo a parte quando si attiva il pulsante dedicato nell'header.
+// Entry con un punteggio di rumore (vedi backend/tagging.py) almeno
+// `minScore`: mostrate come nodi a parte quando si attiva il pulsante
+// dedicato nell'header. La soglia e' regolabile dal pulsante +/- li' accanto.
 export type NoiseEntry = { id: number; text: string };
 
-export async function fetchNoiseEntries(category: Category = 'tutti'): Promise<NoiseEntry[]> {
-  const res = await fetch(`${API_BASE}api/noise?category=${category}`);
+export async function fetchNoiseEntries(category: Category = 'tutti', minScore = 0.5): Promise<NoiseEntry[]> {
+  const res = await fetch(`${API_BASE}api/noise?category=${category}&min_score=${minScore}`);
   if (!res.ok) throw new Error('Impossibile caricare i messaggi di rumore di fondo');
   return (await res.json()).entries;
 }

@@ -36,7 +36,7 @@ type GraphNode = {
   // Sfera disegnata dal grafo per questa stella (serve per lo scintillio).
   __threeObj?: StarObject;
   // Assente per le stelle (i tag): un nodo-messaggio del pulsante "rumore
-  // di fondo" (vedi NOISE_TAG), non cliccabile come una stella.
+  // di fondo", non cliccabile come una stella.
   kind?: 'message';
 };
 
@@ -343,16 +343,16 @@ function categoryFromUrl(): Category {
   return CATEGORY_OPTIONS.some((opt) => opt.value === value) ? (value as Category) : 'tutti';
 }
 
-// Tag assegnato dal backend (vedi backend/tagging.py) alle entry da cui
-// Ollama non riesce a estrarre nessun tag: non e' una categoria (non cambia
-// la sorgente dei dati), ma un tag come un altro. Il pulsante dedicato
-// accende/spegne un nodo per ciascuno di questi messaggi, agganciato alla
-// stella "rumore di fondo" se presente nella vista attuale.
-const NOISE_TAG = 'rumore di fondo';
+// Pulsante "rumore di fondo": accende/spegne un nodo per ogni entry con
+// punteggio di rumore (assegnato da Ollama in fase di tag, vedi
+// backend/tagging.py) almeno pari alla soglia, regolabile con +/-.
+const NOISE_THRESHOLD_DEFAULT = 0.5;
+const NOISE_THRESHOLD_STEP = 0.1;
 // Lunghezza del testo mostrato come etichetta di un nodo-messaggio.
 const NOISE_LABEL_LENGTH = 80;
-// Raggio (nelle unita' del grafo) attorno alla stella "rumore di fondo" in
-// cui nascono i suoi nodi-messaggio.
+// Raggio (nelle unita' del grafo) attorno alla stella scelta a caso in cui
+// nasce ogni nodo-messaggio (vedi noiseNodes): si mescolano cosi' alle
+// stelle esistenti invece di restare un gruppo isolato per conto proprio.
 const NOISE_SPREAD = 20;
 
 export default function App() {
@@ -406,11 +406,11 @@ export default function App() {
   const [activeShape, setActiveShape] = useState<ShapeId | null>(null);
   const shapeActive = activeShape !== null;
 
-  // Nodi-messaggio del pulsante "rumore di fondo" (vedi NOISE_TAG): caricati
-  // una sola volta al primo attivarsi, poi solo accesi o spenti.
+  // Nodi-messaggio del pulsante "rumore di fondo" (vedi NOISE_TAG): quali
+  // compaiono dipende dalla soglia, regolabile con i tasti +/- li' accanto.
   const [noiseVisible, setNoiseVisible] = useState(false);
+  const [noiseThreshold, setNoiseThreshold] = useState(NOISE_THRESHOLD_DEFAULT);
   const [noiseEntries, setNoiseEntries] = useState<NoiseEntry[]>([]);
-  const [noiseLoaded, setNoiseLoaded] = useState(false);
 
   const graphRef = useRef<ForceGraphHandle | undefined>(undefined);
   const glowRef = useRef<HTMLDivElement>(null);
@@ -487,20 +487,22 @@ export default function App() {
     return { anchorByTag, outlineLinks, view };
   }, [graphData.nodes, activeShape]);
 
-  // Nodi-messaggio del pulsante "rumore di fondo": uno per entry, SENZA
-  // nessun collegamento (sono entry con un solo tag, "rumore di fondo", che
-  // quindi non condivide mai nessun altro tema: agganciarli solo a quella
-  // stella la isolerebbe dal resto, e la repulsione della simulazione la
-  // spingerebbe sempre piu' lontano dal resto della nebulosa). Si mescolano
-  // invece alle stelle esistenti: ognuno nasce vicino a una stella scelta a
-  // caso e resta fissato li' (fx/fy/fz), cosi' non viene mai spinto via.
+  // Nodi-messaggio del pulsante "rumore di fondo": uno per entry sopra la
+  // soglia, SENZA nessun collegamento (non condividono necessariamente
+  // nessun tema con nessuno: agganciarli a una sola stella li isolerebbe dal
+  // resto, e la repulsione della simulazione la spingerebbe sempre piu'
+  // lontano dalla nebulosa). Si mescolano invece alle stelle esistenti:
+  // ognuno nasce vicino a una stella scelta in base al proprio id (stabile
+  // tra un refresh e l'altro della soglia) e resta fissato li' (fx/fy/fz),
+  // cosi' non viene mai spinto via.
   const noiseNodes = useMemo<GraphNode[]>(() => {
     if (!noiseVisible || !nodes.length) return [];
     return noiseEntries.map((entry) => {
-      const anchor = nodes[Math.floor(Math.random() * nodes.length)];
-      const x = (anchor.x ?? 0) + (Math.random() - 0.5) * NOISE_SPREAD;
-      const y = (anchor.y ?? 0) + (Math.random() - 0.5) * NOISE_SPREAD;
-      const z = (anchor.z ?? 0) + (Math.random() - 0.5) * NOISE_SPREAD;
+      const key = `rumore:${entry.id}`;
+      const anchor = nodes[Math.floor(hash01(key) * nodes.length) % nodes.length];
+      const x = (anchor.x ?? 0) + (hash01(`${key}:x`) - 0.5) * NOISE_SPREAD;
+      const y = (anchor.y ?? 0) + (hash01(`${key}:y`) - 0.5) * NOISE_SPREAD;
+      const z = (anchor.z ?? 0) + (hash01(`${key}:z`) - 0.5) * NOISE_SPREAD;
       return {
         id: `msg:${entry.id}`,
         label: entry.text.length > NOISE_LABEL_LENGTH
@@ -512,8 +514,7 @@ export default function App() {
         x, y, z, fx: x, fy: y, fz: z,
       };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [noiseVisible, noiseEntries]);
+  }, [noiseVisible, noiseEntries, nodes]);
 
   const graph = useMemo<{ nodes: GraphNode[]; links: GraphLink[] }>(() => ({
     nodes: [...nodes, ...noiseNodes],
@@ -889,19 +890,23 @@ export default function App() {
     selectTag(node.id);
   };
 
-  // Accende/spegne i nodi-messaggio di "rumore di fondo" (vedi NOISE_TAG):
-  // caricati dal server solo la prima volta che il pulsante si attiva.
+  // Accende/spegne i nodi-messaggio di "rumore di fondo".
   const toggleNoise = useCallback(() => {
     setNoiseVisible((visible) => !visible);
   }, []);
 
+  // Soglia regolabile con i pulsanti +/-: ogni variazione, mentre la
+  // visualizzazione e' accesa, richiede di nuovo l'elenco al server.
+  const adjustNoiseThreshold = useCallback((delta: number) => {
+    setNoiseThreshold((value) => Math.min(1, Math.max(0, Math.round((value + delta) * 10) / 10)));
+  }, []);
+
   useEffect(() => {
-    if (!noiseVisible || noiseLoaded) return;
-    fetchNoiseEntries(category)
+    if (!noiseVisible) return;
+    fetchNoiseEntries(category, noiseThreshold)
       .then((entries) => setNoiseEntries(entries))
-      .catch(() => setNoiseEntries([]))
-      .finally(() => setNoiseLoaded(true));
-  }, [noiseVisible, noiseLoaded, category]);
+      .catch(() => setNoiseEntries([]));
+  }, [noiseVisible, noiseThreshold, category]);
 
   // ── L'Oracolo ──
   useEffect(() => {
@@ -1814,15 +1819,36 @@ export default function App() {
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            className={`category-switch-btn noise-switch-btn${noiseVisible ? ' active' : ''}`}
-            onClick={toggleNoise}
-            aria-pressed={noiseVisible}
-            title="Messaggi che Ollama non e' riuscito a taggare"
-          >
-            Rumore di fondo
-          </button>
+          <div className="noise-switch" role="group" aria-label="Rumore di fondo">
+            <button
+              type="button"
+              className={`category-switch-btn noise-switch-btn${noiseVisible ? ' active' : ''}`}
+              onClick={toggleNoise}
+              aria-pressed={noiseVisible}
+              title="Messaggi che Ollama considera rumore di fondo, sopra la soglia qui a fianco"
+            >
+              Rumore di fondo
+            </button>
+            <button
+              type="button"
+              className="noise-threshold-btn"
+              onClick={() => adjustNoiseThreshold(-NOISE_THRESHOLD_STEP)}
+              disabled={noiseThreshold <= 0}
+              aria-label="Soglia piu' permissiva"
+            >
+              −
+            </button>
+            <span className="noise-threshold-value">{Math.round(noiseThreshold * 100)}%</span>
+            <button
+              type="button"
+              className="noise-threshold-btn"
+              onClick={() => adjustNoiseThreshold(NOISE_THRESHOLD_STEP)}
+              disabled={noiseThreshold >= 1}
+              aria-label="Soglia piu' stringente"
+            >
+              +
+            </button>
+          </div>
           <a className="help-button" href={`${import.meta.env.BASE_URL}question.html`} aria-label="L'oracolo"><Sparkles size={16} strokeWidth={1.5} /></a>
           <button className="help-button" type="button" aria-label="Cos'è l'Oracolo" onClick={() => setShowAbout(true)}><CircleHelp size={17} strokeWidth={1.5} /></button>
         </div>

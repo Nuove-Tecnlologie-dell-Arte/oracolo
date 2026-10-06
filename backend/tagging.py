@@ -15,8 +15,16 @@ NOISE_TAG = "rumore di fondo"
 
 TAG_PROMPT = """Analizza il seguente testo e assegna da 1 a {max_tags} tag \
 brevi (una o due parole ciascuno) che ne descrivano il tema/argomento principale.
+
+Valuta anche quanto il testo sia "rumore di fondo": scritto a caso, una prova \
+di scrittura, spazzatura o incomprensibile, senza un pensiero vero (un pensiero \
+breve ma sensato NON e' rumore di fondo, anche se generico).
+
 Rispondi SOLO con un oggetto JSON con questa forma esatta, senza altro testo:
-{{"tags": ["amore", "gioco"]}}
+{{"tags": ["amore", "gioco"], "rumore": 0.0}}
+
+"rumore" e' un numero da 0 (sicuramente un pensiero vero) a 1 (sicuramente \
+rumore di fondo).
 
 Testo:
 \"\"\"{text}\"\"\"
@@ -36,6 +44,8 @@ def _extract_tags(parsed) -> list[str]:
         # fallback: appiattisce chiavi e valori come possibili tag
         flat = []
         for key, value in parsed.items():
+            if key == "rumore":
+                continue
             flat.append(str(key))
             if isinstance(value, list):
                 flat.extend(str(v) for v in value)
@@ -45,7 +55,21 @@ def _extract_tags(parsed) -> list[str]:
     return []
 
 
-def _ask_ollama_for_tags(text: str) -> list[str]:
+def _extract_noise_score(parsed) -> float:
+    """Il punteggio di rumore dichiarato da Ollama (vedi TAG_PROMPT), tra 0 e
+    1; 0.0 se manca o non e' un numero (risposta malformata, o testo che il
+    modello considera comunque un pensiero vero)."""
+    if not isinstance(parsed, dict):
+        return 0.0
+    try:
+        score = float(parsed.get("rumore", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    return min(1.0, max(0.0, score))
+
+
+def _ask_ollama_for_tags(text: str) -> tuple[list[str], float]:
+    """Tag (fino a MAX_TAGS_PER_ENTRY) e punteggio di rumore per un testo."""
     prompt = TAG_PROMPT.format(text=text, max_tags=config.MAX_TAGS_PER_ENTRY)
     response = requests.post(
         f"{config.OLLAMA_HOST}/api/generate",
@@ -66,11 +90,11 @@ def _ask_ollama_for_tags(text: str) -> list[str]:
         # un warning per ogni caso romperebbe la barra di avanzamento, quindi
         # resta a debug (LOG_LEVEL=DEBUG per vederlo).
         log.debug("Risposta di Ollama non e' JSON valido: %r", raw)
-        return []
+        return [], 0.0
     tags = _extract_tags(parsed)
     if not tags:
         log.debug("Nessun tag estraibile dalla risposta di Ollama: %r", parsed)
-    return tags[: config.MAX_TAGS_PER_ENTRY]
+    return tags[: config.MAX_TAGS_PER_ENTRY], _extract_noise_score(parsed)
 
 
 def tag_pending_entries() -> int:
@@ -97,7 +121,7 @@ def tag_pending_entries() -> int:
     progress = new_bar(len(entries), desc="Tagging", unit="entry")
     for entry in entries:
         try:
-            tags = _ask_ollama_for_tags(entry["text"])
+            tags, score = _ask_ollama_for_tags(entry["text"])
         except requests.RequestException as error:
             failed += 1
             log.debug(
@@ -110,8 +134,9 @@ def tag_pending_entries() -> int:
             noise += 1
             tags = [NOISE_TAG]
         db_local.set_entry_tags(entry["id"], tags)
+        db_local.set_noise_score(entry["id"], score)
         tagged += 1
-        log.debug("entry id=%s -> tag %s", entry["id"], tags)
+        log.debug("entry id=%s -> tag %s (rumore %.2f)", entry["id"], tags, score)
         advance(progress, taggate=tagged, rumore=noise, errori=failed)
     progress.close()
     if failed:
