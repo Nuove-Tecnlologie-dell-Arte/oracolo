@@ -53,8 +53,9 @@ QUESTION_ATTEMPTS = 3
 # Contesto caricato da /inserisci.html (backend/context.py): se presente,
 # viene aggiunto a ogni prompt come istruzione sempre valida.
 CONTEXT_BLOCK = """
-Contesto che devi sempre rispettare:
+ISTRUZIONE PRIORITARIA, da seguire piu' di ogni altra cosa in questo prompt: \
 {context}
+Ogni frase che scrivi deve lasciarsi guidare da questa istruzione.
 """
 
 
@@ -76,7 +77,8 @@ Domanda: "{question}"
 Rispondi in italiano con UNA SOLA frase breve (al massimo 16 parole), \
 all'indicativo, che parli alla persona dandole del tu o in forma impersonale. \
 Niente domande, niente elenchi, niente "forse", niente virgolette, nessuna \
-premessa. Scrivi solo la frase."""
+premessa. Se c'e' un'istruzione prioritaria sopra, seguila prima di ogni altra \
+cosa. Scrivi solo la frase."""
 
 VOICE_PROMPT = """Sei l'Oracolo di una nebulosa fatta dei pensieri anonimi di tante persone. \
 Chi ti visita si è fermato davanti alla stella che custodisce il tema "{tag}".
@@ -89,7 +91,8 @@ Pronuncia una sentenza da sibilla su questo tema. Regole:
 - deve far sentire il tema "{tag}" senza nominarlo;
 - costruiscila attorno a un oggetto, un gesto o un luogo preso da uno dei pensieri o dei passi sopra, senza copiarne la frase;
 - parla a chi ti ascolta dandogli del tu, oppure in forma impersonale;
-- non spiegare e non dare consigli; niente domande, niente "forse", niente virgolette, nessuna premessa.
+- non spiegare e non dare consigli; niente domande, niente "forse", niente virgolette, nessuna premessa;
+- se c'e' un'istruzione prioritaria sopra, seguila prima di ogni altra cosa.
 
 Scrivi solo la frase."""
 
