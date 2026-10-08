@@ -735,7 +735,13 @@ export default function App() {
     if (configure()) return;
     const retry = window.setTimeout(configure, 150);
     return () => window.clearTimeout(retry);
-  }, [loading, graph.nodes]);
+    // Solo al montaggio: le forze sopra leggono node.kind/gli estremi dei
+    // link ad ogni tick, quindi si adattano da sole quando arrivano i nodi-
+    // messaggio del rumore di fondo, senza bisogno di essere ridichiarate.
+    // Rieseguire configure() (e il suo d3ReheatSimulation) ad ogni variazione
+    // di graph.nodes resettava l'alpha a 1 ogni volta che si accendeva o
+    // regolava il rumore, facendo risistemare di colpo l'intera nebulosa.
+  }, [loading]);
 
   // ── Search: live results as the user types, no submit needed ──
   const searchMatches = useMemo(() => {
@@ -933,6 +939,14 @@ export default function App() {
 
   useEffect(() => {
     if (!noiseVisible) return;
+    // A soglia 0% non c'e' nessun filtro: il backend risponderebbe con
+    // "noise_score >= 0", vero per qualunque entry (anche quelle che non
+    // sono affatto rumore), mostrando l'intera nebulosa come se fosse
+    // rumore di fondo. Alla soglia minima non si mostra invece nulla.
+    if (noiseThreshold <= 0) {
+      setNoiseEntries([]);
+      return;
+    }
     fetchNoiseEntries(category, noiseThreshold)
       .then((entries) => setNoiseEntries(entries))
       .catch(() => setNoiseEntries([]));
