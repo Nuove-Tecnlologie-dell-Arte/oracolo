@@ -29,7 +29,7 @@ from collections import Counter, defaultdict
 
 import requests
 
-from backend import config, db_local, embeddings, library
+from backend import config, context, db_local, embeddings, library
 from backend.logging_utils import get_logger
 
 log = get_logger(__name__)
@@ -50,10 +50,23 @@ anch'essi tua materia: non citarli e non nominarne gli autori):
 # Quante volte riprovare se la domanda generata non rispetta le regole.
 QUESTION_ATTEMPTS = 3
 
+# Contesto caricato da /inserisci.html (backend/context.py): se presente,
+# viene aggiunto a ogni prompt come istruzione sempre valida.
+CONTEXT_BLOCK = """
+Contesto che devi sempre rispettare:
+{context}
+"""
+
+
+def _context_block() -> str:
+    text = context.read()
+    return CONTEXT_BLOCK.format(context=text) if text else ""
+
+
 ANSWER_PROMPT = """Sei l'Oracolo di una nebulosa fatta dei pensieri anonimi di tante persone. \
 Qualcuno ti pone una domanda. Tu non spieghi, non consoli e non dai consigli: \
 rispondi come una sibilla, con un'immagine concreta e inattesa che lasci da pensare.
-
+{context}
 Pensieri della nebulosa vicini alla domanda (sono la tua materia: prendine \
 un oggetto, un gesto o un luogo, senza copiarne le frasi):
 {thoughts}
@@ -67,7 +80,7 @@ premessa. Scrivi solo la frase."""
 
 VOICE_PROMPT = """Sei l'Oracolo di una nebulosa fatta dei pensieri anonimi di tante persone. \
 Chi ti visita si è fermato davanti alla stella che custodisce il tema "{tag}".
-
+{context}
 Pensieri raccolti in questa stella:
 {thoughts}
 {readings}
@@ -81,7 +94,7 @@ Pronuncia una sentenza da sibilla su questo tema. Regole:
 Scrivi solo la frase."""
 
 SUGGESTIONS_PROMPT = """Molte persone hanno lasciato un pensiero anonimo in una nebulosa custodita da un Oracolo.
-
+{context}
 Temi ricorrenti: {tags}
 
 Alcuni pensieri:
@@ -123,7 +136,7 @@ _suggestions: dict = {"at": 0.0, "pool": []}
 
 QUESTION_PROMPT = """Sei l'Oracolo di una nebulosa fatta dei pensieri anonimi di tante persone. \
 Chi ti visita si è fermato sulla stella "{tag}"{path}.
-
+{context}
 Pensieri raccolti in questa stella (ti servono solo per capire il tema: non \
 parlare a nome di chi li ha scritti):
 {thoughts}
@@ -150,7 +163,7 @@ FALLBACK_QUESTION = "Che cosa ti ha portato fin qui?"
 # nuovo a ogni visita, quindi una stella non ha mai le stesse domande.
 STAR_QUESTION_PROMPT = """Molte persone hanno lasciato un pensiero anonimo in una nebulosa custodita da un Oracolo. \
 Ogni stella della nebulosa custodisce un tema.
-
+{context}
 {asked}La stella del tema "{tag}" raccoglie pensieri come questi:
 {thoughts}
 
@@ -302,14 +315,18 @@ def answer(question: str | None, tag: str | None = None) -> dict:
         vector = embeddings.embed_texts([question])[0]
         near = [entry for _, entry in _nearest(vector, entries, NEAREST)]
         block, readings = _consult(vector, near[:SHOWN])
-        prompt = ANSWER_PROMPT.format(thoughts=_thoughts(near), readings=block, question=question)
+        prompt = ANSWER_PROMPT.format(
+            context=_context_block(), thoughts=_thoughts(near), readings=block, question=question
+        )
         text = _generate(prompt, 0.9)
     else:
         near = random.sample(entries, min(6, len(entries)))
         # Senza domanda si consultano i testi sul tema della stella.
         vector = embeddings.embed_texts([f"{tag}. " + " ".join(e["text"] for e in near[:3])])[0]
         block, readings = _consult(vector, near[:SHOWN])
-        prompt = VOICE_PROMPT.format(tag=tag, thoughts=_thoughts(near), readings=block)
+        prompt = VOICE_PROMPT.format(
+            context=_context_block(), tag=tag, thoughts=_thoughts(near), readings=block
+        )
         text = _generate(prompt, 0.8)
     return {
         "answer": text or SILENCE,
@@ -349,6 +366,7 @@ def _generate_suggestions(entries: list[dict]) -> list[str]:
             json={
                 "model": config.OLLAMA_TAG_MODEL,
                 "prompt": SUGGESTIONS_PROMPT.format(
+                    context=_context_block(),
                     tags=", ".join(random.sample(tags, min(40, len(tags)))),
                     samples=_thoughts(random.sample(entries, min(16, len(entries)))),
                     count=SUGGESTIONS_POOL,
@@ -415,7 +433,9 @@ def ask(question: str) -> dict | None:
     log.info("Domanda %r -> stella '%s'", question, tag)
 
     block, readings = _consult(vector, shown)
-    prompt = ANSWER_PROMPT.format(thoughts=_thoughts(near), readings=block, question=question)
+    prompt = ANSWER_PROMPT.format(
+        context=_context_block(), thoughts=_thoughts(near), readings=block, question=question
+    )
     text = _generate(prompt, 0.9)
     return {
         "question": question,
@@ -449,7 +469,9 @@ def question_for_tag(tag: str, trail: list[str] | None = None) -> str | None:
     sample = random.sample(entries, min(7, len(entries)))
     before = [t for t in (trail or []) if t != tag][-4:]
     path = f", dopo essere passato da: {', '.join(before)}" if before else ""
-    prompt = QUESTION_PROMPT.format(tag=tag, path=path, thoughts=_thoughts(sample))
+    prompt = QUESTION_PROMPT.format(
+        context=_context_block(), tag=tag, path=path, thoughts=_thoughts(sample)
+    )
 
     for attempt in range(QUESTION_ATTEMPTS):
         question = _generate(prompt, 0.9)
@@ -477,6 +499,7 @@ def star_question(tag: str, asked: str | None = None) -> str | None:
         return None
     sample = random.sample(entries, min(5, len(entries)))
     prompt = STAR_QUESTION_PROMPT.format(
+        context=_context_block(),
         tag=tag,
         thoughts=_thoughts(sample),
         asked=STAR_QUESTION_ASKED.format(question=asked) if asked else "",
@@ -531,7 +554,7 @@ FIGURES = {
 FIGURE_PROMPT = """Sei l'Oracolo di una nebulosa fatta dei pensieri anonimi di tante persone. \
 Mentre un visitatore viaggiava tra le stelle, la nebulosa ha preso la forma di {name}, \
 figura di: {meaning}.
-
+{context}
 Le domande che ha fatto:
 {questions}
 
@@ -580,6 +603,7 @@ def figure(questions: list[str], tags: list[str], exclude: list[str] | None = No
     text = None
     if speak:
         prompt = FIGURE_PROMPT.format(
+            context=_context_block(),
             name=name,
             meaning=meaning,
             questions="\n".join(f"- {q}" for q in questions[-8:]),

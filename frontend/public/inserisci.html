@@ -133,6 +133,24 @@
       color: #cfcfcf;
       min-height: 1.3rem;
     }
+    .context-current {
+      width: 100%;
+      margin: 0 0 1.5rem;
+      font-family: 'DM Mono', monospace;
+      font-size: .75rem;
+      color: #a8899e;
+      text-align: left;
+    }
+    #remove-context-btn {
+      margin-left: .75rem;
+      color: #a8899e;
+      border-color: rgba(236,226,211,.25);
+    }
+    #remove-context-btn:hover:not(:disabled) {
+      background: transparent;
+      color: #e91ee9;
+      border-color: #e91ee9;
+    }
     .back {
       position: fixed;
       top: 24px;
@@ -158,29 +176,70 @@
     <div class="categories" id="categories">
       <button class="category-btn active" type="button" data-category="tesi">Tesi</button>
       <button class="category-btn" type="button" data-category="interviste">Interviste</button>
+      <button class="category-btn" type="button" data-category="contesto">Contesto</button>
     </div>
+
+    <p class="context-current" id="context-current" hidden></p>
 
     <label class="dropzone" id="dropzone">
       <input type="file" id="file-input" accept=".md" multiple hidden />
-      Seleziona o trascina uno o piu' file <strong>.md</strong>
+      <span id="dropzone-label">Seleziona o trascina uno o piu' file <strong>.md</strong></span>
     </label>
 
     <ul class="file-list" id="file-list"></ul>
 
     <button class="submit-btn" id="submit-btn" type="button" disabled>Carica e tagga</button>
+    <button class="submit-btn" id="remove-context-btn" type="button" hidden>Rimuovi il contesto</button>
     <div class="status" id="status"></div>
   </div>
 
   <script>
     const categoriesEl = document.getElementById("categories");
     const dropzone = document.getElementById("dropzone");
+    const dropzoneLabel = document.getElementById("dropzone-label");
     const fileInput = document.getElementById("file-input");
     const fileListEl = document.getElementById("file-list");
     const submitBtn = document.getElementById("submit-btn");
+    const removeContextBtn = document.getElementById("remove-context-btn");
+    const contextCurrentEl = document.getElementById("context-current");
     const statusEl = document.getElementById("status");
 
     let category = "tesi";
     let selectedFiles = [];
+
+    function isContesto() {
+      return category === "contesto";
+    }
+
+    async function refreshContextStatus() {
+      if (!isContesto()) return;
+      contextCurrentEl.hidden = false;
+      contextCurrentEl.textContent = "Carico lo stato del contesto...";
+      try {
+        const res = await fetch("api/contesto");
+        const data = await res.json();
+        const text = data.text || "";
+        contextCurrentEl.textContent = text
+          ? `Contesto attuale: ${text.length} caratteri.`
+          : "Nessun contesto impostato.";
+        removeContextBtn.hidden = !text;
+      } catch (err) {
+        contextCurrentEl.textContent = `Errore nel leggere il contesto: ${err.message || err}`;
+      }
+    }
+
+    function updateModeUI() {
+      fileInput.multiple = !isContesto();
+      dropzoneLabel.innerHTML = isContesto()
+        ? "Seleziona o trascina un file <strong>.md</strong> da usare come contesto"
+        : "Seleziona o trascina uno o piu' file <strong>.md</strong>";
+      submitBtn.textContent = isContesto() ? "Carica contesto" : "Carica e tagga";
+      contextCurrentEl.hidden = !isContesto();
+      removeContextBtn.hidden = true;
+      selectedFiles = [];
+      renderFileList();
+      if (isContesto()) refreshContextStatus();
+    }
 
     categoriesEl.addEventListener("click", (event) => {
       const btn = event.target.closest(".category-btn");
@@ -189,6 +248,8 @@
       for (const b of categoriesEl.querySelectorAll(".category-btn")) {
         b.classList.toggle("active", b === btn);
       }
+      statusEl.textContent = "";
+      updateModeUI();
     });
 
     function renderFileList() {
@@ -207,7 +268,7 @@
 
     function addFiles(fileArray) {
       const mdFiles = fileArray.filter((f) => f.name.toLowerCase().endsWith(".md"));
-      selectedFiles = [...selectedFiles, ...mdFiles];
+      selectedFiles = isContesto() ? mdFiles.slice(-1) : [...selectedFiles, ...mdFiles];
       renderFileList();
     }
 
@@ -237,37 +298,81 @@
       });
     }
 
+    async function submitContesto() {
+      const text = await readFileAsText(selectedFiles[0]);
+      statusEl.textContent = "Carico il contesto...";
+      const res = await fetch("api/contesto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "caricamento fallito");
+      statusEl.textContent = `Contesto aggiornato (${data.length} caratteri).`;
+      selectedFiles = [];
+      renderFileList();
+      await refreshContextStatus();
+    }
+
+    async function submitUpload() {
+      const files = await Promise.all(
+        selectedFiles.map(async (file) => ({
+          filename: file.name,
+          text: await readFileAsText(file),
+        }))
+      );
+
+      statusEl.textContent = "Carico e tagga con Ollama (puo' richiedere qualche istante)...";
+      const res = await fetch("api/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, files }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "caricamento fallito");
+
+      statusEl.textContent =
+        `Caricate ${data.inserted} entry, taggate ${data.tagged}` +
+        (data.warning ? ` (${data.warning})` : "") + ".";
+      selectedFiles = [];
+      renderFileList();
+    }
+
     submitBtn.addEventListener("click", async () => {
       if (selectedFiles.length === 0) return;
       submitBtn.disabled = true;
       statusEl.textContent = `Leggo ${selectedFiles.length} file...`;
 
       try {
-        const files = await Promise.all(
-          selectedFiles.map(async (file) => ({
-            filename: file.name,
-            text: await readFileAsText(file),
-          }))
-        );
-
-        statusEl.textContent = "Carico e tagga con Ollama (puo' richiedere qualche istante)...";
-        const res = await fetch("api/upload", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ category, files }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "caricamento fallito");
-
-        statusEl.textContent =
-          `Caricate ${data.inserted} entry, taggate ${data.tagged}` +
-          (data.warning ? ` (${data.warning})` : "") + ".";
-        selectedFiles = [];
-        renderFileList();
+        if (isContesto()) {
+          await submitContesto();
+        } else {
+          await submitUpload();
+        }
       } catch (err) {
         statusEl.textContent = `Errore: ${err.message || err}`;
       } finally {
         submitBtn.disabled = selectedFiles.length === 0;
+      }
+    });
+
+    removeContextBtn.addEventListener("click", async () => {
+      removeContextBtn.disabled = true;
+      statusEl.textContent = "Rimuovo il contesto...";
+      try {
+        const res = await fetch("api/contesto", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: "" }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "rimozione fallita");
+        statusEl.textContent = "Contesto rimosso.";
+        await refreshContextStatus();
+      } catch (err) {
+        statusEl.textContent = `Errore: ${err.message || err}`;
+      } finally {
+        removeContextBtn.disabled = false;
       }
     });
   </script>

@@ -7,7 +7,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import requests
 
-from backend import config, db_local, graph, oracle, tagging
+from backend import config, context, db_local, graph, oracle, tagging
 from backend.logging_utils import get_logger
 from backend.question import generate_questions
 from backend.tagdetail import build_tag_detail
@@ -142,6 +142,9 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/health":
             self._send_json(200, _health())
             return
+        if path == "/api/contesto":
+            self._send_json(200, {"text": context.read()})
+            return
         self._send_json(404, {"error": "indirizzo sconosciuto"})
 
     def _api_post(self, path: str) -> None:
@@ -156,6 +159,9 @@ class Handler(SimpleHTTPRequestHandler):
             return
         if path == "/api/upload":
             self._handle_upload()
+            return
+        if path == "/api/contesto":
+            self._handle_context()
             return
         self._send_json(404, {"error": "indirizzo sconosciuto"})
 
@@ -300,6 +306,18 @@ class Handler(SimpleHTTPRequestHandler):
 
         tagged = tagging.tag_pending_entries()
         self._send_json(200, {"inserted": len(ids), "tagged": tagged})
+
+    def _handle_context(self) -> None:
+        """Imposta (o rimuove, con testo vuoto) il contesto dal pannello
+        /inserisci.html: {"text": "..."}. Non crea entry ne' stelle: il
+        testo viene solo aggiunto ai prompt dell'Oracolo (vedi context.py)."""
+        body = self._read_json()
+        if body is None:
+            return
+        text = str(body.get("text", ""))
+        context.write(text)
+        log.info("Contesto %s (%d caratteri)", "aggiornato" if text.strip() else "rimosso", len(text.strip()))
+        self._send_json(200, {"length": len(context.read())})
 
     def _read_json(self) -> dict | None:
         """Corpo JSON della richiesta; se non e' valido risponde 400 e ritorna None."""

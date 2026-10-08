@@ -39,6 +39,9 @@ REMOTE_API_URL = os.getenv("REMOTE_API_URL", "")
 REMOTE_API_KEY = os.getenv("REMOTE_API_KEY", "")
 
 LOCAL_DB_PATH = os.getenv("LOCAL_DB_PATH", "data/local.db")
+# Contesto caricato da /inserisci.html: testo markdown aggiunto a ogni
+# prompt dell'Oracolo (vedi backend/context.py).
+CONTEXT_PATH = os.getenv("CONTEXT_PATH", "data/contesto.md")
 
 SYNC_INTERVAL_MINUTES = _int("SYNC_INTERVAL_MINUTES", 60)
 

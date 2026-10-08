@@ -1,5 +1,6 @@
 .env
 data/*.db
+data/contesto.md
 output/*.html
 /lib/
 __pycache__/
